@@ -7,7 +7,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Menghilangkan ruang kosong berlebih
 st.markdown("""
     <style>
         .block-container {
@@ -26,14 +25,13 @@ html_code = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Menggunakan font Quicksand untuk kesan estetik & tidak kaku -->
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         :root {
             --pink-main: #d81b60;
             --pink-light: #fce4ec;
-            --pink-border: #f48fb1; /* Warna garis yang lebih halus */
+            --pink-border: #f48fb1;
             --text-dark: #4a4a4a;
         }
         * {
@@ -69,6 +67,10 @@ html_code = """
             font-weight: 700;
             font-size: 13px;
             color: #555;
+        }
+        /* Penyesuaian khusus kalender agar ikonnya rapi */
+        input[type="date"] {
+            font-family: 'Quicksand', sans-serif;
         }
         .form-group input {
             width: 100%;
@@ -113,6 +115,7 @@ html_code = """
         }
         button:active { transform: scale(0.98); }
         .btn-add { background-color: #fce4ec; color: var(--pink-main); border: 1.5px solid var(--pink-main); font-size: 13px; padding: 10px; }
+        .btn-download { background-color: #2e7d32; margin-top: 15px; } /* Warna hijau untuk tombol akhir */
         
         .preview-section {
             background: white;
@@ -130,7 +133,6 @@ html_code = """
             color: var(--pink-main);
             position: relative;
         }
-        /* Hiasan Gradasi Estetik di Atas Nota */
         .nota-box::before {
             content: '';
             position: absolute;
@@ -145,42 +147,12 @@ html_code = """
             align-items: center;
             margin-bottom: 18px;
         }
-        .brand h1 {
-            font-family: 'Dancing Script', cursive;
-            font-size: 42px;
-            line-height: 0.9;
-        }
-        .brand p {
-            font-family: 'Dancing Script', cursive;
-            font-size: 22px;
-            text-align: center;
-        }
-        .contact {
-            font-size: 13px;
-            font-weight: 700;
-            text-align: right;
-            color: var(--pink-main);
-        }
-        .contact p { 
-            display: flex; 
-            align-items: center; 
-            justify-content: flex-end; 
-            gap: 6px; 
-            margin-bottom: 4px; 
-        }
-        .thanks-top {
-            font-family: 'Dancing Script', cursive;
-            font-size: 20px;
-            text-align: center;
-            margin-top: 10px;
-        }
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        /* Kotak Info dibikin oval melengkung (pill shape) */
+        .brand h1 { font-family: 'Dancing Script', cursive; font-size: 42px; line-height: 0.9; }
+        .brand p { font-family: 'Dancing Script', cursive; font-size: 22px; text-align: center; }
+        .contact { font-size: 13px; font-weight: 700; text-align: right; color: var(--pink-main); }
+        .contact p { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 4px; }
+        .thanks-top { font-family: 'Dancing Script', cursive; font-size: 20px; text-align: center; margin-top: 10px; }
+        .info-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
         .info-box {
             border: 1.5px solid var(--pink-border);
             border-radius: 25px;
@@ -191,56 +163,22 @@ html_code = """
             flex: 1;
             background: white;
         }
-        .info-box span {
-            display: block;
-            color: var(--text-dark);
-            font-size: 14px;
-            margin-top: 3px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-            text-align: center;
-        }
-        table th, table td {
-            border: 1.5px solid var(--pink-border);
-            padding: 8px 6px;
-            font-weight: 600;
-        }
-        table th {
-            background-color: var(--pink-light);
-            font-size: 13px;
-            color: var(--pink-main);
-        }
+        .info-box span { display: block; color: var(--text-dark); font-size: 14px; margin-top: 3px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; text-align: center; }
+        table th, table td { border: 1.5px solid var(--pink-border); padding: 8px 6px; font-weight: 600; }
+        table th { background-color: var(--pink-light); font-size: 13px; color: var(--pink-main); }
         table td { color: var(--text-dark); font-size: 13px; }
         .align-right { text-align: right; }
         .align-left { text-align: left; }
         
-        .grand-total {
-            font-family: 'Dancing Script', cursive;
-            font-size: 28px;
-            color: var(--pink-main);
-            background-color: var(--pink-light);
-        }
-        .grand-total-val {
-            font-size: 20px;
-            color: var(--pink-main);
-            background-color: var(--pink-light);
-            font-weight: 700;
-        }
-        /* Footer ucapan terima kasih dibuat bubble soft */
-        .footer-thanks {
-            background-color: var(--pink-light);
-            border-radius: 15px;
-            padding: 15px;
-            text-align: center;
-            margin-top: 10px;
-        }
+        .grand-total { font-family: 'Dancing Script', cursive; font-size: 28px; color: var(--pink-main); background-color: var(--pink-light); }
+        .grand-total-val { font-size: 20px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; }
+        .footer-thanks { background-color: var(--pink-light); border-radius: 15px; padding: 15px; text-align: center; margin-top: 10px; }
+        
         #hasil-gambar-box {
             display: none;
             margin-top: 15px;
-            padding: 12px;
+            padding: 15px;
             background: #fff8fa;
             border: 2px dashed var(--pink-border);
             border-radius: 12px;
@@ -250,7 +188,7 @@ html_code = """
             width: 100%;
             max-width: 400px;
             border-radius: 10px;
-            margin-top: 8px;
+            margin-top: 10px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
     </style>
@@ -260,13 +198,15 @@ html_code = """
 <div class="container">
     <div class="form-section">
         <h3 style="color: var(--pink-main); margin-bottom: 15px; font-family: 'Quicksand', sans-serif;">Input Data Nota</h3>
+        
         <div class="form-group">
             <label>Nama Customer</label>
             <input type="text" id="in-nama" placeholder="Contoh: Bude Heni" oninput="updateNota()">
         </div>
         <div class="form-group">
             <label>Tanggal Order</label>
-            <input type="text" id="in-tanggal" placeholder="Contoh: 16 Nov 2026" oninput="updateNota()">
+            <!-- Menggunakan tipe Date agar muncul Kalender di HP -->
+            <input type="date" id="in-tanggal" onchange="updateNota()">
         </div>
 
         <label style="font-weight: 700; font-size: 13px; color: #555; display: block; margin-bottom: 6px; margin-top: 15px;">Daftar Barang</label>
@@ -290,13 +230,16 @@ html_code = """
             </div>
         </div>
         
-        <button onclick="simpanGambar()" style="margin-top: 15px;">Buat & Simpan Gambar JPG</button>
+        <!-- Tombol Generate Gambar Saja -->
+        <button onclick="buatPratinjau()" style="margin-top: 15px;">1. Buat Pratinjau Gambar</button>
 
+        <!-- Kotak Hasil dan Tombol Download -->
         <div id="hasil-gambar-box">
-            <p style="font-size: 13px; font-weight: bold; color: var(--pink-main);">
-                ✅ Nota siap! Tekan lama gambar di bawah lalu pilih <u>Simpan ke Foto</u>:
+            <p style="font-size: 13px; font-weight: 700; color: var(--text-dark);">
+                Cek pratinjau di bawah. Jika sudah pas, klik tombol hijau untuk menyimpan.
             </p>
             <img id="preview-jpg" alt="Hasil Nota">
+            <button class="btn-download" onclick="downloadGambar()">2. Download ke HP</button>
         </div>
     </div>
 
@@ -309,7 +252,6 @@ html_code = """
                 </div>
                 <div>
                     <div class="contact">
-                        <!-- Icon Instagram SVG -->
                         <p>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
@@ -318,7 +260,6 @@ html_code = """
                             </svg>
                             bykamila__
                         </p>
-                        <!-- Icon WhatsApp SVG -->
                         <p>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
@@ -352,12 +293,10 @@ html_code = """
                 </thead>
                 <tbody id="out-items"></tbody>
                 <tbody>
-                    <!-- Subtotal barang -->
                     <tr>
                         <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
                         <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal">Rp 0</td>
                     </tr>
-                    <!-- Baris Diskon (Akan disembunyikan otomatis jika tidak ada diskon) -->
                     <tr id="row-diskon" style="display: none;">
                         <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
                         <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);">- Rp 0</td>
@@ -383,6 +322,9 @@ html_code = """
 
 <script>
     const formatRp = (angka) => new Intl.NumberFormat('id-ID').format(angka);
+    
+    // Variabel untuk menyimpan data gambar sementara
+    let finalImageDataUrl = "";
 
     function tambahBaris() {
         const container = document.getElementById('item-container');
@@ -397,8 +339,18 @@ html_code = """
     }
 
     function updateNota() {
+        // Nama
         document.getElementById('out-nama').innerText = document.getElementById('in-nama').value || '....................';
-        document.getElementById('out-tanggal').innerText = document.getElementById('in-tanggal').value || '....................';
+        
+        // Format Tanggal Otomatis (Dari YYYY-MM-DD ke DD MMM YYYY)
+        const rawDate = document.getElementById('in-tanggal').value;
+        if (rawDate) {
+            const d = new Date(rawDate);
+            const options = { day: 'numeric', month: 'short', year: 'numeric' };
+            document.getElementById('out-tanggal').innerText = d.toLocaleDateString('id-ID', options);
+        } else {
+            document.getElementById('out-tanggal').innerText = '....................';
+        }
 
         const barangInputs = document.querySelectorAll('.in-barang');
         const jumlahInputs = document.querySelectorAll('.in-jumlah');
@@ -429,12 +381,10 @@ html_code = """
         
         document.getElementById('out-items').innerHTML = outItemsHTML;
 
-        // Logika Diskon & Ongkir
         const diskonTotal = parseInt(document.getElementById('in-diskon').value) || 0;
         const ongkir = parseInt(document.getElementById('in-ongkir').value) || 0;
         const grandTotal = subtotalBarang - diskonTotal + ongkir;
 
-        // Atur kemunculan baris Diskon
         const rowDiskon = document.getElementById('row-diskon');
         if (diskonTotal > 0) {
             rowDiskon.style.display = 'table-row';
@@ -443,31 +393,36 @@ html_code = """
             rowDiskon.style.display = 'none';
         }
 
-        // Tampilkan Harga
         document.getElementById('out-subtotal').innerText = 'Rp ' + formatRp(subtotalBarang);
         document.getElementById('out-ongkir').innerText = 'Rp ' + formatRp(ongkir);
         document.getElementById('out-total').innerText = 'Rp ' + formatRp(grandTotal);
     }
 
-    function simpanGambar() {
+    // Fungsi HANYA untuk membuat pratinjau gambar (Tanpa Download)
+    function buatPratinjau() {
         const nota = document.getElementById('nota-area');
-        let nama = document.getElementById('in-nama').value || 'Pelanggan';
         
-        // Background putih solid untuk hasil canvas yang tajam
         html2canvas(nota, { scale: 2, backgroundColor: "#ffffff" }).then(canvas => {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+            finalImageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
             
             const box = document.getElementById('hasil-gambar-box');
             const img = document.getElementById('preview-jpg');
-            img.src = dataUrl;
+            
+            img.src = finalImageDataUrl;
             box.style.display = 'block';
             box.scrollIntoView({ behavior: 'smooth' });
-
-            const link = document.createElement('a');
-            link.download = `Nota_${nama}.jpg`;
-            link.href = dataUrl;
-            link.click();
         });
+    }
+
+    // Fungsi Khusus Download Gambar
+    function downloadGambar() {
+        if (!finalImageDataUrl) return; // Mencegah download jika pratinjau belum dibuat
+
+        let nama = document.getElementById('in-nama').value || 'Pelanggan';
+        const link = document.createElement('a');
+        link.download = `Nota_${nama}.jpg`;
+        link.href = finalImageDataUrl;
+        link.click();
     }
 
     updateNota();
@@ -476,4 +431,4 @@ html_code = """
 </html>
 """
 
-components.html(html_code, height=1150, scrolling=True)
+components.html(html_code, height=1250, scrolling=True)
