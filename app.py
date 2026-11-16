@@ -3,11 +3,11 @@ import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Generator Nota ByKamila",
-    page_icon="🧾",
+    page_icon="🌸",
     layout="centered"
 )
 
-# Menghilangkan ruang kosong berlebih di atas layar HP
+# Menghilangkan ruang kosong berlebih
 st.markdown("""
     <style>
         .block-container {
@@ -26,23 +26,25 @@ html_code = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Menggunakan font Quicksand untuk kesan estetik & tidak kaku -->
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         :root {
             --pink-main: #d81b60;
             --pink-light: #fce4ec;
-            --pink-border: #e91e63;
+            --pink-border: #f48fb1; /* Warna garis yang lebih halus */
+            --text-dark: #4a4a4a;
         }
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: 'Nunito', sans-serif;
+            font-family: 'Quicksand', sans-serif;
         }
         body {
             background-color: transparent;
-            color: #333;
+            color: var(--text-dark);
             padding: 5px;
         }
         .container {
@@ -56,8 +58,8 @@ html_code = """
         .form-section {
             background: white;
             padding: 18px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
             border: 1px solid #f0f0f0;
         }
         .form-group { margin-bottom: 12px; }
@@ -66,28 +68,34 @@ html_code = """
             margin-bottom: 4px;
             font-weight: 700;
             font-size: 13px;
-            color: #444;
+            color: #555;
         }
         .form-group input {
             width: 100%;
             padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 15px;
+            border: 1.5px solid #eaeaea;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: 0.3s;
+        }
+        .form-group input:focus {
+            border-color: var(--pink-main);
+            outline: none;
         }
         .item-row {
             display: flex;
             gap: 8px;
             margin-bottom: 8px;
-            background: #fafafa;
-            padding: 8px;
-            border-radius: 8px;
+            background: #fffafa;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px dashed #fce4ec;
         }
         .item-row input {
             padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
+            border: 1.5px solid #eaeaea;
+            border-radius: 8px;
+            font-size: 13px;
             width: 100%;
         }
         button {
@@ -95,40 +103,52 @@ html_code = """
             color: white;
             border: none;
             padding: 12px 16px;
-            border-radius: 8px;
+            border-radius: 10px;
             cursor: pointer;
             font-weight: 700;
-            font-size: 15px;
+            font-size: 14px;
             width: 100%;
             margin-top: 8px;
+            transition: 0.2s;
         }
-        button:active { background-color: #ad1457; }
-        .btn-add { background-color: #2e7d32; font-size: 14px; padding: 10px; }
+        button:active { transform: scale(0.98); }
+        .btn-add { background-color: #fce4ec; color: var(--pink-main); border: 1.5px solid var(--pink-main); font-size: 13px; padding: 10px; }
         
         .preview-section {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            padding: 12px;
+            border-radius: 16px;
+            box-shadow: 0 8px 25px rgba(216, 27, 96, 0.1);
+            padding: 0;
+            overflow: hidden;
         }
         .nota-box {
             background: white;
             width: 100%;
             max-width: 450px;
             margin: 0 auto;
-            padding: 18px;
+            padding: 25px 20px;
             color: var(--pink-main);
+            position: relative;
         }
+        /* Hiasan Gradasi Estetik di Atas Nota */
+        .nota-box::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 8px;
+            background: linear-gradient(90deg, #fce4ec, #f48fb1, #d81b60, #f48fb1, #fce4ec);
+        }
+        
         .header-nota {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 18px;
         }
         .brand h1 {
             font-family: 'Dancing Script', cursive;
-            font-size: 38px;
-            line-height: 1;
+            font-size: 42px;
+            line-height: 0.9;
         }
         .brand p {
             font-family: 'Dancing Script', cursive;
@@ -137,86 +157,85 @@ html_code = """
         }
         .contact {
             font-size: 13px;
-            font-weight: bold;
+            font-weight: 700;
             text-align: right;
+            color: var(--pink-main);
         }
-        .contact p { margin-bottom: 2px; }
+        .contact p { 
+            display: flex; 
+            align-items: center; 
+            justify-content: flex-end; 
+            gap: 6px; 
+            margin-bottom: 4px; 
+        }
         .thanks-top {
             font-family: 'Dancing Script', cursive;
             font-size: 20px;
             text-align: center;
-            margin-top: 6px;
+            margin-top: 10px;
         }
         .info-row {
             display: flex;
             justify-content: space-between;
-            gap: 5px;
-            margin-bottom: 10px;
+            gap: 10px;
+            margin-bottom: 15px;
         }
+        /* Kotak Info dibikin oval melengkung (pill shape) */
         .info-box {
-            border: 2px solid var(--pink-border);
-            border-radius: 8px;
-            padding: 5px 8px;
+            border: 1.5px solid var(--pink-border);
+            border-radius: 25px;
+            padding: 8px 15px;
             font-size: 12px;
-            font-weight: bold;
+            font-weight: 700;
             text-align: center;
             flex: 1;
+            background: white;
         }
         .info-box span {
             display: block;
-            color: #333;
+            color: var(--text-dark);
             font-size: 14px;
-            margin-top: 2px;
+            margin-top: 3px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             text-align: center;
         }
         table th, table td {
-            border: 2px solid var(--pink-border);
-            padding: 7px 5px;
-            font-weight: bold;
+            border: 1.5px solid var(--pink-border);
+            padding: 8px 6px;
+            font-weight: 600;
         }
         table th {
             background-color: var(--pink-light);
             font-size: 13px;
-        }
-        table td { color: #333; font-size: 13px; }
-        .align-right { text-align: right; }
-        .align-left { text-align: left; }
-        .discount-text {
-            font-size: 11px;
             color: var(--pink-main);
         }
+        table td { color: var(--text-dark); font-size: 13px; }
+        .align-right { text-align: right; }
+        .align-left { text-align: left; }
+        
         .grand-total {
             font-family: 'Dancing Script', cursive;
             font-size: 28px;
             color: var(--pink-main);
+            background-color: var(--pink-light);
         }
         .grand-total-val {
             font-size: 20px;
             color: var(--pink-main);
+            background-color: var(--pink-light);
+            font-weight: 700;
         }
-        .footer-info {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 10px;
-        }
-        .footer-info .info-box {
-            text-align: left;
-            display: flex;
-            align-items: center;
-            padding: 8px;
-        }
+        /* Footer ucapan terima kasih dibuat bubble soft */
         .footer-thanks {
-            border: 2px solid var(--pink-border);
-            border-radius: 8px;
-            padding: 8px;
+            background-color: var(--pink-light);
+            border-radius: 15px;
+            padding: 15px;
             text-align: center;
-            font-family: 'Dancing Script', cursive;
-            font-size: 18px;
+            margin-top: 10px;
         }
         #hasil-gambar-box {
             display: none;
@@ -224,15 +243,15 @@ html_code = """
             padding: 12px;
             background: #fff8fa;
             border: 2px dashed var(--pink-border);
-            border-radius: 10px;
+            border-radius: 12px;
             text-align: center;
         }
         #hasil-gambar-box img {
             width: 100%;
             max-width: 400px;
-            border-radius: 8px;
+            border-radius: 10px;
             margin-top: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
     </style>
 </head>
@@ -240,7 +259,7 @@ html_code = """
 
 <div class="container">
     <div class="form-section">
-        <h3 style="color: var(--pink-main); margin-bottom: 12px;">Input Data Nota</h3>
+        <h3 style="color: var(--pink-main); margin-bottom: 15px; font-family: 'Quicksand', sans-serif;">Input Data Nota</h3>
         <div class="form-group">
             <label>Nama Customer</label>
             <input type="text" id="in-nama" placeholder="Contoh: Bude Heni" oninput="updateNota()">
@@ -250,7 +269,7 @@ html_code = """
             <input type="text" id="in-tanggal" placeholder="Contoh: 16 Nov 2026" oninput="updateNota()">
         </div>
 
-        <label style="font-weight: 700; font-size: 13px; color: #444; display: block; margin-bottom: 6px;">Daftar Barang</label>
+        <label style="font-weight: 700; font-size: 13px; color: #555; display: block; margin-bottom: 6px; margin-top: 15px;">Daftar Barang</label>
         <div id="item-container">
             <div class="item-row">
                 <input type="text" class="in-barang" placeholder="Nama Barang" style="flex:2.2" oninput="updateNota()">
@@ -260,10 +279,10 @@ html_code = """
         </div>
         <button class="btn-add" onclick="tambahBaris()">+ Tambah Barang</button>
 
-        <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
             <div class="form-group" style="flex:1">
-                <label>Potongan / Item (Rp)</label>
-                <input type="number" id="in-diskon" placeholder="10000" inputmode="numeric" oninput="updateNota()">
+                <label>Diskon (Rp)</label>
+                <input type="number" id="in-diskon" placeholder="Kosongkan jika tak ada" inputmode="numeric" oninput="updateNota()">
             </div>
             <div class="form-group" style="flex:1">
                 <label>Ongkir (Rp)</label>
@@ -271,18 +290,7 @@ html_code = """
             </div>
         </div>
         
-        <div style="display: flex; gap: 8px;">
-            <div class="form-group" style="flex:1">
-                <label>Berat (Kg)</label>
-                <input type="text" id="in-berat" placeholder="1" oninput="updateNota()">
-            </div>
-            <div class="form-group" style="flex:1">
-                <label>Jml Paket</label>
-                <input type="text" id="in-paket" placeholder="1" oninput="updateNota()">
-            </div>
-        </div>
-
-        <button onclick="simpanGambar()">Buat & Simpan Gambar JPG</button>
+        <button onclick="simpanGambar()" style="margin-top: 15px;">Buat & Simpan Gambar JPG</button>
 
         <div id="hasil-gambar-box">
             <p style="font-size: 13px; font-weight: bold; color: var(--pink-main);">
@@ -301,8 +309,22 @@ html_code = """
                 </div>
                 <div>
                     <div class="contact">
-                        <p>◎ bykamila__</p>
-                        <p>✆ 0895-2608-7445</p>
+                        <!-- Icon Instagram SVG -->
+                        <p>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                            </svg>
+                            bykamila__
+                        </p>
+                        <!-- Icon WhatsApp SVG -->
+                        <p>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                            </svg>
+                            0895-2608-7445
+                        </p>
                     </div>
                     <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
                 </div>
@@ -310,16 +332,12 @@ html_code = """
 
             <div class="info-row">
                 <div class="info-box">
-                    Nama Customer :
-                    <span id="out-nama">....................</span>
+                    Nama Customer
+                    <span id="out-nama">-</span>
                 </div>
                 <div class="info-box">
-                    Tanggal Order :
-                    <span id="out-tanggal">....................</span>
-                </div>
-                <div class="info-box">
-                    Status :
-                    <span>☑ Selesai</span>
+                    Tanggal Order
+                    <span id="out-tanggal">-</span>
                 </div>
             </div>
 
@@ -334,32 +352,30 @@ html_code = """
                 </thead>
                 <tbody id="out-items"></tbody>
                 <tbody>
+                    <!-- Subtotal barang -->
                     <tr>
-                        <td colspan="2" class="discount-text align-left" id="out-teks-diskon">
-                            Potongan Reseller : Rp 0 / item<br>( 0 x 0 = Rp 0 )
-                        </td>
-                        <td style="background-color: var(--pink-light);">Subtotal</td>
-                        <td class="align-right" id="out-subtotal">Rp 0</td>
+                        <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
+                        <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal">Rp 0</td>
+                    </tr>
+                    <!-- Baris Diskon (Akan disembunyikan otomatis jika tidak ada diskon) -->
+                    <tr id="row-diskon" style="display: none;">
+                        <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
+                        <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);">- Rp 0</td>
                     </tr>
                     <tr>
-                        <td colspan="3" class="align-left" style="color: var(--pink-main);">Ongkir</td>
+                        <td colspan="3" class="align-left">Ongkir</td>
                         <td class="align-right" id="out-ongkir">Rp 0</td>
                     </tr>
                     <tr>
-                        <td colspan="3" class="grand-total align-left" style="background-color: var(--pink-light);">Total</td>
-                        <td class="grand-total-val align-right" style="background-color: var(--pink-light);" id="out-total">Rp 0</td>
+                        <td colspan="3" class="grand-total align-left">Total</td>
+                        <td class="grand-total-val align-right" id="out-total">Rp 0</td>
                     </tr>
                 </tbody>
             </table>
 
-            <div class="footer-info">
-                <div class="info-box" style="flex:1">Berat (Kg) : <span id="out-berat" style="margin-left: 8px; font-weight:normal;"></span></div>
-                <div class="info-box" style="flex:1">Jml Paket : <span id="out-paket" style="margin-left: 8px; font-weight:normal;"></span></div>
-            </div>
-
             <div class="footer-thanks">
-                ♡ Terima kasih sudah order di Homedress bykamila ♡<br>
-                <span style="font-size: 14px; font-family: 'Nunito', sans-serif;">- Semoga suka dengan produknya -</span>
+                <span style="font-family: 'Dancing Script', cursive; font-size: 24px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-dark);">- Semoga suka dengan produknya di Homedress bykamila -</span>
             </div>
         </div>
     </div>
@@ -383,16 +399,13 @@ html_code = """
     function updateNota() {
         document.getElementById('out-nama').innerText = document.getElementById('in-nama').value || '....................';
         document.getElementById('out-tanggal').innerText = document.getElementById('in-tanggal').value || '....................';
-        document.getElementById('out-berat').innerText = document.getElementById('in-berat').value || '';
-        document.getElementById('out-paket').innerText = document.getElementById('in-paket').value || '';
 
         const barangInputs = document.querySelectorAll('.in-barang');
         const jumlahInputs = document.querySelectorAll('.in-jumlah');
         const hargaInputs = document.querySelectorAll('.in-harga');
         
         let outItemsHTML = '';
-        let totalHargaBarang = 0;
-        let totalPieces = 0;
+        let subtotalBarang = 0;
         let rowsCount = Math.max(3, barangInputs.length);
 
         for (let i = 0; i < rowsCount; i++) {
@@ -401,8 +414,7 @@ html_code = """
             let harga = (i < hargaInputs.length) ? (parseInt(hargaInputs[i].value) || 0) : 0;
 
             if(jml > 0 && harga > 0) {
-                totalHargaBarang += (jml * harga);
-                totalPieces += jml;
+                subtotalBarang += (jml * harga);
             }
 
             outItemsHTML += `
@@ -417,14 +429,22 @@ html_code = """
         
         document.getElementById('out-items').innerHTML = outItemsHTML;
 
-        const diskonPerItem = parseInt(document.getElementById('in-diskon').value) || 0;
-        const totalDiskon = totalPieces * diskonPerItem;
-        const subtotalAkhir = totalHargaBarang - totalDiskon;
+        // Logika Diskon & Ongkir
+        const diskonTotal = parseInt(document.getElementById('in-diskon').value) || 0;
         const ongkir = parseInt(document.getElementById('in-ongkir').value) || 0;
-        const grandTotal = subtotalAkhir + ongkir;
+        const grandTotal = subtotalBarang - diskonTotal + ongkir;
 
-        document.getElementById('out-teks-diskon').innerHTML = `Potongan Reseller : Rp ${formatRp(diskonPerItem)} / item<br>( ${totalPieces} x ${formatRp(diskonPerItem)} = Rp ${formatRp(totalDiskon)} )`;
-        document.getElementById('out-subtotal').innerText = 'Rp ' + formatRp(subtotalAkhir);
+        // Atur kemunculan baris Diskon
+        const rowDiskon = document.getElementById('row-diskon');
+        if (diskonTotal > 0) {
+            rowDiskon.style.display = 'table-row';
+            document.getElementById('out-val-diskon').innerText = '- Rp ' + formatRp(diskonTotal);
+        } else {
+            rowDiskon.style.display = 'none';
+        }
+
+        // Tampilkan Harga
+        document.getElementById('out-subtotal').innerText = 'Rp ' + formatRp(subtotalBarang);
         document.getElementById('out-ongkir').innerText = 'Rp ' + formatRp(ongkir);
         document.getElementById('out-total').innerText = 'Rp ' + formatRp(grandTotal);
     }
@@ -433,17 +453,16 @@ html_code = """
         const nota = document.getElementById('nota-area');
         let nama = document.getElementById('in-nama').value || 'Pelanggan';
         
+        // Background putih solid untuk hasil canvas yang tajam
         html2canvas(nota, { scale: 2, backgroundColor: "#ffffff" }).then(canvas => {
             const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
             
-            // Tampilkan gambar di layar agar mudah disimpan ke Galeri iPhone
             const box = document.getElementById('hasil-gambar-box');
             const img = document.getElementById('preview-jpg');
             img.src = dataUrl;
             box.style.display = 'block';
             box.scrollIntoView({ behavior: 'smooth' });
 
-            // Tetap picu unduhan otomatis untuk browser desktop/Android
             const link = document.createElement('a');
             link.download = `Nota_${nama}.jpg`;
             link.href = dataUrl;
@@ -457,4 +476,4 @@ html_code = """
 </html>
 """
 
-components.html(html_code, height=1350, scrolling=True)
+components.html(html_code, height=1150, scrolling=True)
