@@ -243,6 +243,7 @@ def proses_logout():
     st.session_state.admin_auth = False
     st.session_state.nota_verified = None
     st.session_state.nota_manual_preview = None
+    st.session_state.preview_pending_oid = None
     if "token" in st.query_params:
         del st.query_params["token"]
     st.rerun()
@@ -279,8 +280,8 @@ def upload_foto_galeri(uploaded_file):
     except Exception as e:
         return None, f"Koneksi upload gagal: {e}"
 
-# --- 7. FUNGSI RENDER NOTA PINK ESTETIK (PROPORSI TERKUNCI UNTUK SEMUA LAYAR) ---
-def tampilkan_nota_estetik(payload_nota):
+# --- 7. FUNGSI RENDER NOTA PINK ESTETIK (MENDUKUNG MODE PRATINJAU & LUNAS) ---
+def tampilkan_nota_estetik(payload_nota, is_preview=False):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
     order_id = payload_nota.get("order_id", "MAN-" + str(uuid.uuid4())[:6].upper())
@@ -302,6 +303,7 @@ def tampilkan_nota_estetik(payload_nota):
     data_for_js["order_id"] = order_id
     data_for_js["sig_code"] = sig_code
     data_for_js["verify_url"] = verify_url
+    data_for_js["is_preview"] = bool(is_preview)
 
     extra_rows = max(0, len(payload_nota["items"]) - 3)
     iframe_height = 790 + (extra_rows * 38)
@@ -324,7 +326,6 @@ def tampilkan_nota_estetik(payload_nota):
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Quicksand', sans-serif; }
             body { background: transparent; padding: 4px; }
 
-            /* Pembungkus agar nota otomatis pas di layar HP kecil maupun PC */
             #nota-viewport {
                 width: 100%;
                 display: flex;
@@ -336,7 +337,6 @@ def tampilkan_nota_estetik(payload_nota):
                 transform-origin: top center;
             }
 
-            /* Lebar nota dikunci 440px agar tatanan tidak pernah berantakan */
             .nota-box {
                 background: white;
                 width: 440px;
@@ -362,7 +362,7 @@ def tampilkan_nota_estetik(payload_nota):
                 top: 46%;
                 left: 50%;
                 transform: translate(-50%, -50%) rotate(-24deg);
-                font-size: 26px;
+                font-size: 25px;
                 font-weight: 700;
                 color: rgba(216, 27, 96, 0.06);
                 white-space: nowrap;
@@ -552,7 +552,7 @@ def tampilkan_nota_estetik(payload_nota):
             </div>
         </div>
 
-        <button class="btn-dl" onclick="downloadNotaJPG()">📥 Download Gambar Nota (JPG)</button>
+        <button class="btn-dl" id="btn-dl-nota" onclick="downloadNotaJPG()">📥 Download Gambar Nota (JPG)</button>
         <div id="jpg-preview-area">
             <p style="font-size: 12px; font-weight: 700; color: #d81b60;">Untuk pengguna iPhone: Tekan lama gambar di bawah lalu pilih <u>Simpan ke Foto</u></p>
             <img id="img-hasil" alt="Nota JPG">
@@ -564,8 +564,30 @@ def tampilkan_nota_estetik(payload_nota):
 
             document.getElementById('out-nama').innerText = data.nama;
             document.getElementById('out-tanggal').innerText = data.tanggal;
-            document.getElementById('wm-text').innerText = `LUNAS • ${data.order_id} • BYKAMILA`;
-            document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
+
+            if (data.is_preview) {
+                document.getElementById('wm-text').innerText = 'PRATINJAU • BELUM LUNAS';
+                const authEl = document.getElementById('out-auth');
+                authEl.innerText = `⏳ PRATINJAU TAGIHAN • ${data.order_id} • BELUM LUNAS`;
+                authEl.style.color = '#e65100';
+                authEl.style.background = '#fff3e0';
+                authEl.style.borderColor = '#ffcc80';
+                document.getElementById('qrcode-box').style.display = 'none';
+                const dlBtn = document.getElementById('btn-dl-nota');
+                dlBtn.innerText = '📥 Download Gambar Tagihan / Pratinjau (JPG)';
+                dlBtn.style.backgroundColor = '#d81b60';
+            } else {
+                document.getElementById('wm-text').innerText = `LUNAS • ${data.order_id} • BYKAMILA`;
+                document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
+                new QRCode(document.getElementById("qrcode-box"), {
+                    text: data.verify_url,
+                    width: 64,
+                    height: 64,
+                    colorDark: "#d81b60",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
 
             let rowsHTML = '';
             let subtotal = 0;
@@ -598,15 +620,6 @@ def tampilkan_nota_estetik(payload_nota):
             document.getElementById('out-subtotal').innerText = 'Rp ' + formatRp(subtotal);
             document.getElementById('out-ongkir').innerText = 'Rp ' + formatRp(data.ongkir);
             document.getElementById('out-total').innerText = 'Rp ' + formatRp(totalAkhir);
-
-            new QRCode(document.getElementById("qrcode-box"), {
-                text: data.verify_url,
-                width: 64,
-                height: 64,
-                colorDark: "#d81b60",
-                colorLight: "#ffffff",
-                correctLevel: QRCode.CorrectLevel.M
-            });
 
             function fitNotaToScreen() {
                 const vp = document.getElementById('nota-viewport');
@@ -645,8 +658,9 @@ def tampilkan_nota_estetik(payload_nota):
                     document.getElementById('img-hasil').src = url;
                     document.getElementById('jpg-preview-area').style.display = 'block';
 
+                    const prefixFile = data.is_preview ? "Tagihan" : "Nota_Lunas";
                     const a = document.createElement('a');
-                    a.download = `Nota_Lunas_${data.nama}.jpg`;
+                    a.download = `${prefixFile}_${data.nama}.jpg`;
                     a.href = url;
                     a.click();
                 }).catch(() => {
@@ -676,12 +690,15 @@ with col_head3:
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Pesanan", "🧾 Nota", "📦 Stok", "💳 QRIS"])
 
 # ==============================================================================
-# TAB 1: VERIFIKASI & CANCEL PESANAN DARI KATALOG
+# TAB 1: VERIFIKASI, PRATINJAU & CANCEL PESANAN DARI KATALOG
 # ==============================================================================
 with tab1:
+    if "preview_pending_oid" not in st.session_state:
+        st.session_state.preview_pending_oid = None
+
     if "nota_verified" in st.session_state and st.session_state.nota_verified:
         st.success("✅ Pesanan berhasil diverifikasi Lunas & stok otomatis diperbarui!")
-        tampilkan_nota_estetik(st.session_state.nota_verified)
+        tampilkan_nota_estetik(st.session_state.nota_verified, is_preview=False)
         if st.button("⬅️ Kembali ke Daftar Pesanan Masuk", use_container_width=True):
             st.session_state.nota_verified = None
             st.rerun()
@@ -740,6 +757,27 @@ with tab1:
                 with c_diskon:
                     diskon_in = st.number_input("Diskon (Rp)", min_value=0, step=1000, key=f"dis_{oid}")
 
+                tgl_nota = " ".join(order["tgl"].split()[:3]) if len(order["tgl"].split()) >= 3 else order["tgl"]
+
+                # Tombol Pratinjau Nota sebelum Verifikasi Lunas
+                sedang_preview = (st.session_state.preview_pending_oid == oid)
+                if not sedang_preview:
+                    if st.button("👁️ Pratinjau Nota", key=f"prev_{oid}", use_container_width=True):
+                        st.session_state.preview_pending_oid = oid
+                        st.rerun()
+                else:
+                    if st.button("✖️ Tutup Pratinjau", key=f"close_prev_{oid}", use_container_width=True):
+                        st.session_state.preview_pending_oid = None
+                        st.rerun()
+                    tampilkan_nota_estetik({
+                        "order_id": oid,
+                        "nama": order["nama"],
+                        "tanggal": tgl_nota,
+                        "items": order["items"],
+                        "ongkir": int(ongkir_in),
+                        "diskon": int(diskon_in)
+                    }, is_preview=True)
+
                 btn_verif, btn_cancel = st.columns(2)
                 with btn_verif:
                     if st.button("✅ Verifikasi Lunas", key=f"ok_{oid}", type="primary", use_container_width=True):
@@ -761,7 +799,7 @@ with tab1:
                                         break
 
                             load_admin_data.clear()
-                            tgl_nota = " ".join(order["tgl"].split()[:3]) if len(order["tgl"].split()) >= 3 else order["tgl"]
+                            st.session_state.preview_pending_oid = None
                             st.session_state.nota_verified = {
                                 "order_id": oid,
                                 "nama": order["nama"],
@@ -790,6 +828,7 @@ with tab1:
                                         break
 
                             load_admin_data.clear()
+                            st.session_state.preview_pending_oid = None
                             st.warning(f"Pesanan {oid} ({order['nama']}) dibatalkan. Stok otomatis kembali ke katalog!")
                             st.rerun()
 
@@ -806,7 +845,6 @@ with tab2:
     with c_m2:
         m_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="m_tgl")
 
-    # Menggunakan ID unik per baris agar hapus baris di tengah tidak menggeser pilihan barang lain
     if "manual_row_ids" not in st.session_state or not st.session_state.manual_row_ids:
         st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
 
@@ -879,7 +917,7 @@ with tab2:
             }
 
     if "nota_manual_preview" in st.session_state and st.session_state.nota_manual_preview:
-        tampilkan_nota_estetik(st.session_state.nota_manual_preview)
+        tampilkan_nota_estetik(st.session_state.nota_manual_preview, is_preview=False)
 
 # ==============================================================================
 # TAB 3: KELOLA STOK, UPLOAD FOTO & KETERANGAN PRODUK
