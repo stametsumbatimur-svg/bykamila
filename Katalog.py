@@ -167,14 +167,16 @@ if st.session_state.last_order:
     for idx, item in enumerate(order['items'], start=1):
         items_rows += f"""
         <tr>
-            <td>{idx}</td>
-            <td style="text-align:left;">{item['nama']}</td>
-            <td>{item['qty']} pcs</td>
-            <td style="text-align:right;">Rp {item['harga']:,.0f}</td>
+            <td class="col-no">{idx}</td>
+            <td class="col-nama">{html.escape(item['nama'])}</td>
+            <td class="col-jml">{item['qty']} pcs</td>
+            <td class="col-hrg">Rp {item['harga']:,.0f}</td>
         </tr>
         """.replace(",", ".")
 
     total_fmt = f"Rp {order['total']:,.0f}".replace(",", ".")
+    extra_booking_rows = max(0, len(order['items']) - 2)
+    booking_iframe_height = 460 + (extra_booking_rows * 34)
 
     nota_html = f"""
     <!DOCTYPE html>
@@ -183,21 +185,29 @@ if st.session_state.last_order:
         <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Quicksand:wght@600;700&display=swap" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <style>
-            body {{ font-family: 'Quicksand', sans-serif; margin: 0; padding: 5px; background: transparent; }}
+            * {{ box-sizing: border-box; }}
+            body {{ font-family: 'Quicksand', sans-serif; margin: 0; padding: 4px; background: transparent; }}
+            #booking-viewport {{ width: 100%; display: flex; justify-content: center; overflow: hidden; }}
+            #booking-scaler {{ width: 420px; transform-origin: top center; }}
             .nota {{
                 background: white; border: 2px solid #f48fb1; border-radius: 16px;
-                padding: 20px; max-width: 420px; margin: 0 auto; color: #d81b60;
+                padding: 20px; width: 420px; min-width: 420px; max-width: 420px;
+                margin: 0 auto; color: #d81b60;
             }}
-            .title {{ font-family: 'Dancing Script', cursive; font-size: 34px; text-align: center; line-height: 1; }}
-            .sub {{ text-align: center; font-size: 12px; color: #666; margin-bottom: 12px; }}
+            .title {{ font-family: 'Dancing Script', cursive; font-size: 34px; text-align: center; line-height: 1; white-space: nowrap; }}
+            .sub {{ text-align: center; font-size: 12px; color: #666; margin-bottom: 12px; white-space: nowrap; }}
             .badge {{
                 background: #fff3e0; color: #e65100; padding: 5px 10px; border-radius: 20px;
-                font-size: 12px; font-weight: 700; text-align: center; margin-bottom: 12px;
+                font-size: 12px; font-weight: 700; text-align: center; margin-bottom: 12px; white-space: nowrap;
             }}
-            .info {{ font-size: 13px; color: #333; margin-bottom: 10px; line-height: 1.5; }}
-            table {{ width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }}
-            th, td {{ border: 1.5px solid #f48fb1; padding: 6px; text-align: center; color: #333; }}
-            th {{ background: #fce4ec; color: #d81b60; }}
+            .info {{ font-size: 13px; color: #333; margin-bottom: 10px; line-height: 1.5; word-break: break-word; }}
+            table {{ width: 376px; table-layout: fixed; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }}
+            th, td {{ border: 1.5px solid #f48fb1; padding: 6px 5px; text-align: center; color: #333; }}
+            th {{ background: #fce4ec; color: #d81b60; white-space: nowrap; }}
+            .col-no {{ width: 34px; white-space: nowrap; }}
+            .col-nama {{ width: 164px; text-align: left; word-break: break-word; }}
+            .col-jml {{ width: 70px; white-space: nowrap; }}
+            .col-hrg {{ width: 108px; text-align: right; white-space: nowrap; }}
             .total-row {{ background: #fce4ec; font-weight: 700; font-size: 15px; color: #d81b60; }}
             .note {{ font-size: 11px; color: #666; text-align: center; margin-top: 8px; }}
             .btn {{
@@ -208,46 +218,88 @@ if st.session_state.last_order:
         </style>
     </head>
     <body>
-        <div class="nota" id="nota-booking">
-            <div class="title">homedress bykamila</div>
-            <div class="sub">IG: @bykamila__ | WA: 0895-2608-7445</div>
-            <div class="badge">⏳ BOOKING STOK (BELUM TERMASUK ONGKIR)</div>
-            <div class="info">
-                <b>ID Order:</b> {order['id']}<br>
-                <b>Tanggal:</b> {order['tgl']}<br>
-                <b>Customer:</b> {order['nama']} ({order['wa']})
-            </div>
-            <table>
-                <thead>
-                    <tr><th>No</th><th>Barang</th><th>Jml</th><th>Harga</th></tr>
-                </thead>
-                <tbody>
-                    {items_rows}
-                    <tr class="total-row">
-                        <td colspan="3" style="text-align:left;">Subtotal</td>
-                        <td style="text-align:right;">{total_fmt}</td>
-                    </tr>
-                </tbody>
-            </table>
-            <div class="note">
-                *Stok terkunci selama 1x24 jam. Silakan konfirmasi ongkir ke Admin sebelum melakukan pembayaran.
+        <div id="booking-viewport">
+            <div id="booking-scaler">
+                <div class="nota" id="nota-booking">
+                    <div class="title">homedress bykamila</div>
+                    <div class="sub">IG: @bykamila__ | WA: 0895-2608-7445</div>
+                    <div class="badge">⏳ BOOKING STOK (BELUM TERMASUK ONGKIR)</div>
+                    <div class="info">
+                        <b>ID Order:</b> {order['id']}<br>
+                        <b>Tanggal:</b> {order['tgl']}<br>
+                        <b>Customer:</b> {html.escape(order['nama'])} ({html.escape(order['wa'])})
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="col-no">No</th>
+                                <th style="width:164px;">Barang</th>
+                                <th class="col-jml">Jml</th>
+                                <th style="width:108px;">Harga</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {items_rows}
+                            <tr class="total-row">
+                                <td colspan="3" style="text-align:left;">Subtotal</td>
+                                <td style="text-align:right; white-space:nowrap;">{total_fmt}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="note">
+                        *Stok terkunci selama 1x24 jam. Silakan konfirmasi ongkir ke Admin sebelum melakukan pembayaran.
+                    </div>
+                </div>
             </div>
         </div>
         <button class="btn" onclick="simpanJPG()">📥 Simpan Gambar Nota Booking (JPG)</button>
         <script>
+            function fitBookingToScreen() {{
+                const vp = document.getElementById('booking-viewport');
+                const scaler = document.getElementById('booking-scaler');
+                const box = document.getElementById('nota-booking');
+                scaler.style.transform = 'none';
+                const availWidth = vp.clientWidth;
+                if (availWidth > 0 && availWidth < 420) {{
+                    const ratio = availWidth / 420;
+                    scaler.style.transform = `scale(${{ratio}})`;
+                    vp.style.height = (box.offsetHeight * ratio + 8) + 'px';
+                }} else {{
+                    scaler.style.transform = 'none';
+                    vp.style.height = 'auto';
+                }}
+            }}
+            window.addEventListener('load', fitBookingToScreen);
+            window.addEventListener('resize', fitBookingToScreen);
+            setTimeout(fitBookingToScreen, 150);
+
             function simpanJPG() {{
-                html2canvas(document.getElementById('nota-booking'), {{ scale: 2, backgroundColor: "#ffffff" }}).then(canvas => {{
+                const scaler = document.getElementById('booking-scaler');
+                const prevTransform = scaler.style.transform;
+                scaler.style.transform = 'none';
+
+                html2canvas(document.getElementById('nota-booking'), {{
+                    scale: 2,
+                    width: 420,
+                    backgroundColor: "#ffffff"
+                }}).then(canvas => {{
+                    scaler.style.transform = prevTransform;
+                    fitBookingToScreen();
+
                     const link = document.createElement('a');
                     link.download = "Booking_{order['id']}_{order['nama']}.jpg";
                     link.href = canvas.toDataURL('image/jpeg', 0.95);
                     link.click();
+                }}).catch(() => {{
+                    scaler.style.transform = prevTransform;
+                    fitBookingToScreen();
                 }});
             }}
         </script>
     </body>
     </html>
     """
-    components.html(nota_html, height=450, scrolling=True)
+    components.html(nota_html, height=booking_iframe_height, scrolling=True)
 
     if qris_bytes or info_bayar:
         st.markdown("""
