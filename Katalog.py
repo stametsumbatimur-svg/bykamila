@@ -64,7 +64,7 @@ st.markdown("""
 st.markdown("<h1 style='text-align: center; color: #ff4b8b; font-family: cursive; margin-bottom: 0;'>♡ Homedress ByKamila ♡</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 14px; opacity: 0.85;'>Pilih motif ready stock di bawah ini. Stok otomatis terkunci saat checkout.</p>", unsafe_allow_html=True)
 
-# --- 2. FUNGSI AMBIL GAMBAR LEWAT SERVER (ANTI BLOKIR OPERATOR) ---
+# --- 2. FUNGSI AMBIL GAMBAR LEWAT SERVER (CACHE 1 JAM) ---
 def format_image_url(url):
     if not url or not isinstance(url, str):
         return ""
@@ -90,7 +90,7 @@ def ambil_bytes_gambar(raw_url):
         pass
     return None
 
-# --- 3. KONEKSI KE GOOGLE SHEETS ---
+# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
 @st.cache_resource
 def get_google_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -98,25 +98,36 @@ def get_google_sheet():
     client = gspread.authorize(creds)
     return client.open("Database_ByKamila")
 
-try:
+@st.cache_data(ttl=45, show_spinner=False)
+def load_katalog_data():
     db = get_google_sheet()
-    sheet_produk = db.worksheet("Produk")
-    sheet_pesanan = db.worksheet("Pesanan")
-except Exception as e:
-    st.error(f"Gagal terhubung ke Database: {e}")
-    st.stop()
+    ws_produk = db.worksheet("Produk")
+    data_produk = ws_produk.get_all_records()
 
-# Ambil pengaturan QRIS & Info Rekening dari Google Sheets
-qris_url = str(st.secrets.get("qris_url", "")).strip()
-info_bayar = ""
+    qris_url = str(st.secrets.get("qris_url", "")).strip()
+    info_bayar = ""
+    try:
+        ws_cfg = db.worksheet("Pengaturan")
+        cfg = {str(r["Kunci"]): str(r["Nilai"]) for r in ws_cfg.get_all_records()}
+        if cfg.get("qris_url"):
+            qris_url = cfg["qris_url"].strip()
+        info_bayar = cfg.get("info_bayar", "").strip()
+    except Exception:
+        pass
+
+    return data_produk, qris_url, info_bayar
+
 try:
-    sheet_pengaturan = db.worksheet("Pengaturan")
-    cfg = {str(r["Kunci"]): str(r["Nilai"]) for r in sheet_pengaturan.get_all_records()}
-    if cfg.get("qris_url"):
-        qris_url = cfg["qris_url"].strip()
-    info_bayar = cfg.get("info_bayar", "").strip()
-except Exception:
-    pass
+    data_produk, qris_url, info_bayar = load_katalog_data()
+except Exception as e:
+    if "429" in str(e):
+        st.warning("⏳ Server sedang sibuk memproses banyak permintaan. Tunggu 30–60 detik lalu tekan tombol **🔄 Coba Lagi** di bawah.")
+        if st.button("🔄 Coba Lagi"):
+            load_katalog_data.clear()
+            st.rerun()
+    else:
+        st.error(f"Gagal terhubung ke Database: {e}")
+    st.stop()
 
 qris_bytes = ambil_bytes_gambar(qris_url) if qris_url else None
 
@@ -144,11 +155,9 @@ if "cart" not in st.session_state:
 if "last_order" not in st.session_state:
     st.session_state.last_order = None
 
-# --- 6. AMBIL DATA PRODUK ---
-data_produk = sheet_produk.get_all_records()
 produk_ready = [p for p in data_produk if p.get('Stok Tersedia') != '' and int(p['Stok Tersedia']) > 0]
 
-# --- 7. TAMPILKAN NOTA & QRIS PEMBAYARAN JIKA BARU SAJA CHECKOUT ---
+# --- 6. TAMPILKAN NOTA & QRIS PEMBAYARAN JIKA BARU SAJA CHECKOUT ---
 if st.session_state.last_order:
     order = st.session_state.last_order
     st.success(f"🎉 Booking Berhasil! ID Pesanan: **{order['id']}**")
@@ -279,12 +288,13 @@ if st.session_state.last_order:
         st.rerun()
     st.divider()
 
-# --- 8. TAMPILAN GALERI KATALOG PRODUK + TOMBOL REFRESH KONTEN ---
+# --- 7. TAMPILAN GALERI KATALOG PRODUK + TOMBOL REFRESH KONTEN ---
 col_kat1, col_kat2 = st.columns([2.8, 1.4])
 with col_kat1:
     st.subheader("👗 Katalog Ready Stock")
 with col_kat2:
     if st.button("🔄 Cek Stok", use_container_width=True, help="Perbarui data stok terbaru tanpa memuat ulang halaman web"):
+        load_katalog_data.clear()
         st.toast("Stok katalog sudah diperbarui!", icon="✨")
         st.rerun()
 
@@ -321,7 +331,7 @@ else:
                                 st.session_state.cart[nama_brg] = qty_di_cart + 1
                                 st.rerun()
 
-# --- 9. KERANJANG BELANJA & CHECKOUT ---
+# --- 8. KERANJANG BELANJA & CHECKOUT ---
 st.divider()
 st.subheader("🛒 Keranjang & Checkout")
 
@@ -372,7 +382,11 @@ else:
                 st.error("Nama dan Nomor WhatsApp wajib diisi ya kak!")
             else:
                 with st.spinner("Sedang mengecek ketersediaan stok terbaru & mengunci pesanan..."):
-                    data_produk_terbaru = sheet_produk.get_all_records()
+                    db = get_google_sheet()
+                    ws_produk = db.worksheet("Produk")
+                    ws_pesanan = db.worksheet("Pesanan")
+                    data_produk_terbaru = ws_produk.get_all_records()
+
                     stok_cukup = True
                     item_terproses = []
 
@@ -394,14 +408,14 @@ else:
                             sub = harga_sat * qty_pesan
                             nama_item = str(detail_brg['Nama Barang'])
 
-                            sheet_pesanan.append_row([
+                            ws_pesanan.append_row([
                                 id_pesanan, tgl_sekarang, nama_pembeli.strip(), no_wa.strip(),
                                 nama_item, qty_pesan, sub, "Menunggu Verifikasi"
                             ])
 
                             baris_sheet = data_produk_terbaru.index(detail_brg) + 2
                             terkunci_lama = int(detail_brg['Stok Terkunci']) if detail_brg['Stok Terkunci'] != '' else 0
-                            sheet_produk.update_cell(baris_sheet, 6, terkunci_lama + qty_pesan)
+                            ws_produk.update_cell(baris_sheet, 6, terkunci_lama + qty_pesan)
 
                             ringkasan_items.append({
                                 "nama": nama_item,
@@ -410,6 +424,7 @@ else:
                                 "subtotal": sub
                             })
 
+                        load_katalog_data.clear()
                         st.session_state.last_order = {
                             "id": id_pesanan,
                             "tgl": tgl_sekarang,
