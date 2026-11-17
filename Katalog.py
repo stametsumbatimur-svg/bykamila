@@ -215,8 +215,14 @@ if st.session_state.last_order:
         st.rerun()
     st.divider()
 
-# --- 7. TAMPILAN GALERI KATALOG PRODUK ---
-st.subheader("👗 Katalog Ready Stock")
+# --- 7. TAMPILAN GALERI KATALOG PRODUK + TOMBOL REFRESH KONTEN ---
+col_kat1, col_kat2 = st.columns([2.8, 1.4])
+with col_kat1:
+    st.subheader("👗 Katalog Ready Stock")
+with col_kat2:
+    if st.button("🔄 Cek Stok", use_container_width=True, help="Perbarui data stok terbaru tanpa memuat ulang halaman web"):
+        st.toast("Stok katalog sudah diperbarui!", icon="✨")
+        st.rerun()
 
 if not produk_ready:
     st.warning("Mohon maaf, saat ini semua motif sedang habis terjual 🙏")
