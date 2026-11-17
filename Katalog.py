@@ -98,7 +98,7 @@ def get_google_sheet():
     client = gspread.authorize(creds)
     return client.open("Database_ByKamila")
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner=False)
 def load_katalog_data():
     db = get_google_sheet()
     ws_produk = db.worksheet("Produk")
