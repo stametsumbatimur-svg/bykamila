@@ -97,9 +97,16 @@ def simpan_pengaturan(kunci, nilai):
     all_vals = ws_cfg.get_all_values()
     for idx, row in enumerate(all_vals, start=1):
         if len(row) > 0 and str(row[0]).strip() == kunci:
-            ws_cfg.update_cell(idx, 2, nilai)
+            if nilai == "":
+                try:
+                    ws_cfg.batch_clear([f"B{idx}"])
+                except Exception:
+                    ws_cfg.update_cell(idx, 2, "")
+            else:
+                ws_cfg.update_cell(idx, 2, nilai)
             return
-    ws_cfg.append_row([kunci, nilai])
+    if nilai != "":
+        ws_cfg.append_row([kunci, nilai])
 
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA LUNAS DI-SCAN ---
 if "cek" in st.query_params:
@@ -908,18 +915,28 @@ with tab4:
                     type="primary",
                     use_container_width=True
                 )
-            if info_bayar_tersimpan:
-                st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
             st.caption("Tips iPhone: Tekan lama pada gambar QRIS di atas jika ingin langsung memilih 'Simpan ke Foto'.")
     else:
         st.warning("Belum ada gambar QRIS yang di-upload. Silakan upload pada formulir di bawah ini (cukup 1 kali saja).")
 
+    # Panel khusus Info Rekening + Tombol Hapus sekali klik
+    if info_bayar_tersimpan:
+        with st.container(border=True):
+            st.info(f"**Info Rekening / Pembayaran Aktif:**\n\n{info_bayar_tersimpan}")
+            if st.button("🗑️ Hapus Info Rekening", use_container_width=True):
+                simpan_pengaturan("info_bayar", "")
+                load_admin_data.clear()
+                st.success("✅ Info rekening berhasil dihapus!")
+                st.rerun()
+
     with st.expander("⚙️ Upload / Ganti QRIS & Pengaturan Link", expanded=(not bool(qris_bytes_admin))):
+        rek_widget_key = f"rek_in_{hashlib.md5(info_bayar_tersimpan.encode()).hexdigest()[:6]}"
         with st.form("form_pengaturan_qris"):
             qris_file = st.file_uploader("Pilih Gambar QRIS dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
             info_rek_in = st.text_area(
-                "Info Rekening Tambahan (Opsional)",
+                "Info Rekening Tambahan (Kosongkan jika ingin menghapus)",
                 value=info_bayar_tersimpan,
+                key=rek_widget_key,
                 placeholder="Contoh: BCA 1234567890 a.n. Kamila"
             )
             admin_url_in = st.text_input(
@@ -947,5 +964,5 @@ with tab4:
                     simpan_pengaturan("admin_url", admin_url_in.strip())
                     ambil_bytes_gambar.clear()
                     load_admin_data.clear()
-                    st.success("✅ QRIS & pengaturan pembayaran berhasil disimpan permanen!")
+                    st.success("✅ QRIS & pengaturan pembayaran berhasil disimpan!")
                     st.rerun()
