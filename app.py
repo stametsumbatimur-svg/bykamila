@@ -63,7 +63,7 @@ def ambil_bytes_gambar(url):
         pass
     return None
 
-# --- 3. KONEKSI KE GOOGLE SHEETS ---
+# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
 @st.cache_resource
 def get_google_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -71,35 +71,35 @@ def get_google_sheet():
     client = gspread.authorize(creds)
     return client.open("Database_ByKamila")
 
-try:
+@st.cache_data(ttl=45, show_spinner=False)
+def load_admin_data():
     db = get_google_sheet()
-    sheet_produk = db.worksheet("Produk")
-    sheet_pesanan = db.worksheet("Pesanan")
-except Exception as e:
-    st.error(f"Gagal terhubung ke Database: {e}")
-    st.stop()
+    ws_produk = db.worksheet("Produk")
+    ws_pesanan = db.worksheet("Pesanan")
+    data_produk = ws_produk.get_all_records()
+    data_pesanan = ws_pesanan.get_all_records()
 
-def get_pengaturan():
     try:
-        ws = db.worksheet("Pengaturan")
+        ws_cfg = db.worksheet("Pengaturan")
     except gspread.WorksheetNotFound:
-        ws = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
-        ws.append_row(["Kunci", "Nilai"])
-        ws.append_row(["qris_url", ""])
-        ws.append_row(["info_bayar", ""])
-        ws.append_row(["admin_url", ""])
-    records = ws.get_all_records()
-    return ws, {str(r["Kunci"]): str(r["Nilai"]) for r in records}
+        ws_cfg = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
+        ws_cfg.append_row(["Kunci", "Nilai"])
+        ws_cfg.append_row(["qris_url", ""])
+        ws_cfg.append_row(["info_bayar", ""])
+        ws_cfg.append_row(["admin_url", ""])
+    cfg_toko = {str(r["Kunci"]): str(r["Nilai"]) for r in ws_cfg.get_all_records()}
 
-sheet_pengaturan, cfg_toko = get_pengaturan()
+    return data_produk, data_pesanan, cfg_toko
 
 def simpan_pengaturan(kunci, nilai):
-    all_vals = sheet_pengaturan.get_all_values()
+    db = get_google_sheet()
+    ws_cfg = db.worksheet("Pengaturan")
+    all_vals = ws_cfg.get_all_values()
     for idx, row in enumerate(all_vals, start=1):
         if len(row) > 0 and str(row[0]).strip() == kunci:
-            sheet_pengaturan.update_cell(idx, 2, nilai)
+            ws_cfg.update_cell(idx, 2, nilai)
             return
-    sheet_pengaturan.append_row([kunci, nilai])
+    ws_cfg.append_row([kunci, nilai])
 
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA LUNAS DI-SCAN ---
 if "cek" in st.query_params:
@@ -114,7 +114,12 @@ if "cek" in st.query_params:
     sig_cocok = (cek_sig == expected_sig and cek_tot > 0)
 
     if cek_id.startswith("ORD-"):
-        semua_order = sheet_pesanan.get_all_records()
+        try:
+            _, semua_order, _ = load_admin_data()
+        except Exception as e:
+            st.error(f"Gagal membaca database: {e}")
+            st.stop()
+
         cocok_rows = [r for r in semua_order if str(r.get("ID Pesanan", "")).strip() == cek_id]
 
         if cocok_rows and sig_cocok:
@@ -229,6 +234,19 @@ def proses_logout():
     if "token" in st.query_params:
         del st.query_params["token"]
     st.rerun()
+
+# --- AMBIL DATA ADMIN DARI CACHE ---
+try:
+    data_produk_admin, semua_pesanan, cfg_toko = load_admin_data()
+except Exception as e:
+    if "429" in str(e):
+        st.warning("⏳ Kuota akses Google Sheets sedang penuh sementara. Tunggu 30–60 detik lalu tekan tombol **🔄 Coba Lagi**.")
+        if st.button("🔄 Coba Lagi"):
+            load_admin_data.clear()
+            st.rerun()
+    else:
+        st.error(f"Gagal terhubung ke Database: {e}")
+    st.stop()
 
 # --- 6. FUNGSI UPLOAD FOTO KE IMGBB ---
 def upload_foto_galeri(uploaded_file):
@@ -550,6 +568,7 @@ with col_head1:
     st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Admin ByKamila ♡</h3>", unsafe_allow_html=True)
 with col_head2:
     if st.button("🔄 Refresh", use_container_width=True):
+        load_admin_data.clear()
         st.rerun()
 with col_head3:
     if st.button("🚪 Logout", use_container_width=True):
@@ -569,7 +588,6 @@ with tab1:
             st.rerun()
         st.divider()
 
-    semua_pesanan = sheet_pesanan.get_all_records()
     pesanan_pending = {}
 
     for idx, row in enumerate(semua_pesanan, start=2):
@@ -627,18 +645,23 @@ with tab1:
                 with btn_verif:
                     if st.button("✅ Verifikasi Lunas", key=f"ok_{oid}", type="primary", use_container_width=True):
                         with st.spinner("Memproses verifikasi & mengurangi stok..."):
-                            data_prod = sheet_produk.get_all_records()
+                            db = get_google_sheet()
+                            ws_produk = db.worksheet("Produk")
+                            ws_pesanan = db.worksheet("Pesanan")
+                            data_prod = ws_produk.get_all_records()
+
                             for r_idx in order["rows"]:
-                                sheet_pesanan.update_cell(r_idx, 8, "Lunas")
+                                ws_pesanan.update_cell(r_idx, 8, "Lunas")
                             for it in order["items"]:
                                 for p_idx, p in enumerate(data_prod, start=2):
                                     if str(p["Nama Barang"]) == it["nama"]:
                                         tot_lama = int(p["Stok Total"]) if p["Stok Total"] != "" else 0
                                         kunci_lama = int(p["Stok Terkunci"]) if p["Stok Terkunci"] != "" else 0
-                                        sheet_produk.update_cell(p_idx, 5, max(0, tot_lama - it["qty"]))
-                                        sheet_produk.update_cell(p_idx, 6, max(0, kunci_lama - it["qty"]))
+                                        ws_produk.update_cell(p_idx, 5, max(0, tot_lama - it["qty"]))
+                                        ws_produk.update_cell(p_idx, 6, max(0, kunci_lama - it["qty"]))
                                         break
 
+                            load_admin_data.clear()
                             tgl_nota = " ".join(order["tgl"].split()[:3]) if len(order["tgl"].split()) >= 3 else order["tgl"]
                             st.session_state.nota_verified = {
                                 "order_id": oid,
@@ -653,15 +676,21 @@ with tab1:
                 with btn_cancel:
                     if st.button("❌ Cancel Pesanan", key=f"no_{oid}", use_container_width=True):
                         with st.spinner("Membatalkan pesanan & mengembalikan stok..."):
-                            data_prod = sheet_produk.get_all_records()
+                            db = get_google_sheet()
+                            ws_produk = db.worksheet("Produk")
+                            ws_pesanan = db.worksheet("Pesanan")
+                            data_prod = ws_produk.get_all_records()
+
                             for r_idx in order["rows"]:
-                                sheet_pesanan.update_cell(r_idx, 8, "Dibatalkan")
+                                ws_pesanan.update_cell(r_idx, 8, "Dibatalkan")
                             for it in order["items"]:
                                 for p_idx, p in enumerate(data_prod, start=2):
                                     if str(p["Nama Barang"]) == it["nama"]:
                                         kunci_lama = int(p["Stok Terkunci"]) if p["Stok Terkunci"] != "" else 0
-                                        sheet_produk.update_cell(p_idx, 6, max(0, kunci_lama - it["qty"]))
+                                        ws_produk.update_cell(p_idx, 6, max(0, kunci_lama - it["qty"]))
                                         break
+
+                            load_admin_data.clear()
                             st.warning(f"Pesanan {oid} ({order['nama']}) dibatalkan. Stok otomatis kembali ke katalog!")
                             st.rerun()
 
@@ -670,8 +699,7 @@ with tab1:
 # ==============================================================================
 with tab2:
     st.subheader("Buat Nota Manual")
-    data_prod_manual = sheet_produk.get_all_records()
-    daftar_nama_prod = ["-- Ketik Manual --"] + [str(p["Nama Barang"]) for p in data_prod_manual]
+    daftar_nama_prod = ["-- Ketik Manual --"] + [str(p["Nama Barang"]) for p in data_produk_admin]
 
     c_m1, c_m2 = st.columns(2)
     with c_m1:
@@ -693,7 +721,7 @@ with tab2:
                 harga_default = 0
             else:
                 nama_item_m = pilih
-                cocok = next((p for p in data_prod_manual if str(p["Nama Barang"]) == pilih), None)
+                cocok = next((p for p in data_produk_admin if str(p["Nama Barang"]) == pilih), None)
                 harga_default = int(cocok["Harga"]) if cocok else 0
         with col_j:
             qty_m = st.number_input("Jml", min_value=1, value=1, key=f"qty_m_{i}")
@@ -735,7 +763,7 @@ with tab2:
 # TAB 3: KELOLA STOK & UPLOAD FOTO PRODUK
 # ==============================================================================
 with tab3:
-    stok_list = sheet_produk.get_all_records()
+    stok_list = data_produk_admin
 
     with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
         with st.form("form_tambah_produk", clear_on_submit=True):
@@ -769,13 +797,16 @@ with tab3:
 
                     if lanjut_simpan:
                         with st.spinner("Menyimpan ke database..."):
+                            db = get_google_sheet()
+                            ws_produk = db.worksheet("Produk")
                             id_prd = "PRD-" + str(uuid.uuid4())[:4].upper()
-                            baris_baru = len(sheet_produk.get_all_values()) + 1
+                            baris_baru = len(ws_produk.get_all_values()) + 1
                             rumus_tersedia = f"=E{baris_baru}-F{baris_baru}"
-                            sheet_produk.append_row(
+                            ws_produk.append_row(
                                 [id_prd, nama_baru.strip(), int(harga_baru), url_foto_final, int(stok_baru), 0, rumus_tersedia],
                                 value_input_option="USER_ENTERED"
                             )
+                            load_admin_data.clear()
                             st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
                             st.rerun()
 
@@ -823,14 +854,20 @@ with tab3:
 
                     if ok_update:
                         with st.spinner("Memperbarui data produk..."):
-                            sheet_produk.update_cell(baris_sheet_edit, 3, int(harga_edit))
-                            sheet_produk.update_cell(baris_sheet_edit, 4, url_foto_baru)
-                            sheet_produk.update_cell(baris_sheet_edit, 5, int(stok_tot_edit))
+                            db = get_google_sheet()
+                            ws_produk = db.worksheet("Produk")
+                            ws_produk.update_cell(baris_sheet_edit, 3, int(harga_edit))
+                            ws_produk.update_cell(baris_sheet_edit, 4, url_foto_baru)
+                            ws_produk.update_cell(baris_sheet_edit, 5, int(stok_tot_edit))
+                            load_admin_data.clear()
                             st.success(f"✅ Data **{nama_diedit}** berhasil diperbarui!")
                             st.rerun()
 
                 if btn_hapus_prd:
-                    sheet_produk.delete_rows(baris_sheet_edit)
+                    db = get_google_sheet()
+                    ws_produk = db.worksheet("Produk")
+                    ws_produk.delete_rows(baris_sheet_edit)
+                    load_admin_data.clear()
                     st.warning(f"Produk **{nama_diedit}** telah dihapus dari katalog.")
                     st.rerun()
 
@@ -909,5 +946,6 @@ with tab4:
                     simpan_pengaturan("info_bayar", info_rek_in.strip())
                     simpan_pengaturan("admin_url", admin_url_in.strip())
                     ambil_bytes_gambar.clear()
+                    load_admin_data.clear()
                     st.success("✅ QRIS & pengaturan pembayaran berhasil disimpan permanen!")
                     st.rerun()
