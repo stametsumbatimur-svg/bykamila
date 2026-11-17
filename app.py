@@ -9,6 +9,7 @@ import base64
 import requests
 import hashlib
 import time
+import urllib.parse
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Admin & Nota ByKamila", page_icon="🌸", layout="centered")
@@ -24,14 +25,134 @@ st.markdown("""
             text-align: center;
             margin-bottom: 15px;
         }
+        .verify-valid {
+            background: #e8f5e9;
+            border: 2px solid #2e7d32;
+            border-radius: 16px;
+            padding: 20px;
+            color: #1b5e20;
+        }
+        .verify-invalid {
+            background: #ffebee;
+            border: 2px solid #c62828;
+            border-radius: 16px;
+            padding: 20px;
+            color: #b71c1c;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. SISTEM LOGIN, LOGOUT & KEAMANAN PIN ---
-PIN_ADMIN = str(st.secrets.get("admin_pin", "0305")).strip()
+# --- 2. KUNCI KEAMANAN & FUNGSI TANDA TANGAN DIGITAL ---
+PIN_ADMIN = str(st.secrets.get("admin_pin", "1234")).strip()
 SALT_KEY = str(st.secrets.get("gcp_service_account", {}).get("private_key_id", "bykamila_secret"))
 SESSION_TOKEN = hashlib.sha256(f"{PIN_ADMIN}:{SALT_KEY}".encode()).hexdigest()[:24]
 
+def buat_signature_nota(order_id, nama, total_akhir):
+    raw = f"{order_id.strip()}|{nama.strip().lower()}|{int(total_akhir)}|{SALT_KEY}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:8].upper()
+
+# --- 3. KONEKSI KE GOOGLE SHEETS ---
+@st.cache_resource
+def get_google_sheet():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    client = gspread.authorize(creds)
+    return client.open("Database_ByKamila")
+
+try:
+    db = get_google_sheet()
+    sheet_produk = db.worksheet("Produk")
+    sheet_pesanan = db.worksheet("Pesanan")
+except Exception as e:
+    st.error(f"Gagal terhubung ke Database: {e}")
+    st.stop()
+
+def get_pengaturan():
+    try:
+        ws = db.worksheet("Pengaturan")
+    except gspread.WorksheetNotFound:
+        ws = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
+        ws.append_row(["Kunci", "Nilai"])
+        ws.append_row(["qris_url", ""])
+        ws.append_row(["info_bayar", ""])
+        ws.append_row(["admin_url", ""])
+    records = ws.get_all_records()
+    return ws, {str(r["Kunci"]): str(r["Nilai"]) for r in records}
+
+sheet_pengaturan, cfg_toko = get_pengaturan()
+
+# --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA LUNAS DI-SCAN ---
+if "cek" in st.query_params:
+    cek_id = str(st.query_params.get("cek", "")).strip()
+    cek_sig = str(st.query_params.get("sig", "")).strip().upper()
+    cek_nama = str(st.query_params.get("n", "")).strip()
+    cek_tot = int(st.query_params.get("t", "0")) if str(st.query_params.get("t", "0")).isdigit() else 0
+
+    st.markdown("<h2 style='text-align: center; color: #d81b60; font-family: cursive;'>♡ Verifikasi Nota ByKamila ♡</h2>", unsafe_allow_html=True)
+
+    expected_sig = buat_signature_nota(cek_id, cek_nama, cek_tot)
+    sig_cocok = (cek_sig == expected_sig and cek_tot > 0)
+
+    if cek_id.startswith("ORD-"):
+        semua_order = sheet_pesanan.get_all_records()
+        cocok_rows = [r for r in semua_order if str(r.get("ID Pesanan", "")).strip() == cek_id]
+
+        if cocok_rows and sig_cocok:
+            status_db = str(cocok_rows[0].get("Status", "")).strip()
+            nama_db = str(cocok_rows[0].get("Nama Customer", ""))
+            tgl_db = str(cocok_rows[0].get("Tgl", ""))
+            daftar_item_html = "".join([f"<li>{r['Nama Barang']} ({r['Jml']} pcs)</li>" for r in cocok_rows])
+
+            if status_db == "Lunas":
+                st.markdown(f"""
+                    <div class='verify-valid'>
+                        <h3 style='margin-top:0;'>✅ NOTA SAH & TERVERIFIKASI LUNAS</h3>
+                        <p><b>ID Pesanan:</b> {cek_id}<br>
+                        <b>Kode Validasi:</b> {cek_sig}<br>
+                        <b>Nama Customer:</b> {nama_db}<br>
+                        <b>Tanggal Order:</b> {tgl_db}<br>
+                        <b>Total Dibayar:</b> Rp {cek_tot:,.0f}</p>
+                        <b>Rincian Barang:</b>
+                        <ul>{daftar_item_html}</ul>
+                    </div>
+                """.replace(",", "."), unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                    <div class='verify-invalid'>
+                        <h3 style='margin-top:0;'>⚠️ STATUS PESANAN BELUM LUNAS</h3>
+                        <p>Pesanan <b>{cek_id}</b> tercatat dengan status: <b>{status_db}</b>.</p>
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <div class='verify-invalid'>
+                    <h3 style='margin-top:0;'>❌ NOTA TIDAK VALID / DATA TELAH DIUBAH</h3>
+                    <p>Kode validasi tidak cocok dengan catatan resmi Homedress ByKamila.</p>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        # Untuk Nota Manual (MAN-XXXXXX)
+        if sig_cocok:
+            st.markdown(f"""
+                <div class='verify-valid'>
+                    <h3 style='margin-top:0;'>✅ NOTA RESMI TERVERIFIKASI LUNAS</h3>
+                    <p><b>No. Referensi:</b> {cek_id}<br>
+                    <b>Kode Validasi:</b> {cek_sig}<br>
+                    <b>Nama Customer:</b> {cek_nama}<br>
+                    <b>Total Sah:</b> Rp {cek_tot:,.0f}</p>
+                </div>
+            """.replace(",", "."), unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <div class='verify-invalid'>
+                    <h3 style='margin-top:0;'>❌ NOTA TIDAK VALID / DATA TELAH DIUBAH</h3>
+                    <p>Kode validasi tidak cocok dengan tanda tangan digital resmi ByKamila.</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+    st.stop()
+
+# --- 5. SISTEM LOGIN, LOGOUT & KEAMANAN PIN ADMIN ---
 if "admin_auth" not in st.session_state:
     st.session_state.admin_auth = False
 if "login_attempts" not in st.session_state:
@@ -39,12 +160,10 @@ if "login_attempts" not in st.session_state:
 if "lockout_until" not in st.session_state:
     st.session_state.lockout_until = 0.0
 
-# Cek apakah perangkat memiliki token "Ingat Saya" yang sah
 if not st.session_state.admin_auth:
     if st.query_params.get("token") == SESSION_TOKEN:
         st.session_state.admin_auth = True
 
-# Halaman Login jika belum terautentikasi
 if not st.session_state.admin_auth:
     st.markdown("""
         <div class='login-card'>
@@ -84,7 +203,6 @@ if not st.session_state.admin_auth:
                     st.error(f"PIN salah! Sisa percobaan: {sisa_coba} kali.")
     st.stop()
 
-# Fungsi Logout bersih
 def proses_logout():
     st.session_state.admin_auth = False
     st.session_state.nota_verified = None
@@ -93,23 +211,7 @@ def proses_logout():
         del st.query_params["token"]
     st.rerun()
 
-# --- 3. KONEKSI KE GOOGLE SHEETS ---
-@st.cache_resource
-def get_google_sheet():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    client = gspread.authorize(creds)
-    return client.open("Database_ByKamila")
-
-try:
-    db = get_google_sheet()
-    sheet_produk = db.worksheet("Produk")
-    sheet_pesanan = db.worksheet("Pesanan")
-except Exception as e:
-    st.error(f"Gagal terhubung ke Database: {e}")
-    st.stop()
-
-# --- 4. FUNGSI UPLOAD FOTO KE IMGBB ---
+# --- 6. FUNGSI UPLOAD FOTO KE IMGBB ---
 def upload_foto_galeri(uploaded_file):
     api_key = st.secrets.get("imgbb_api_key", "")
     if not api_key:
@@ -128,8 +230,30 @@ def upload_foto_galeri(uploaded_file):
     except Exception as e:
         return None, f"Koneksi upload gagal: {e}"
 
-# --- 5. FUNGSI RENDER NOTA PINK ESTETIK ---
+# --- 7. FUNGSI RENDER NOTA PINK ESTETIK + QR KEASLIAN + WATERMARK ---
 def tampilkan_nota_estetik(payload_nota):
+    subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
+    total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
+    order_id = payload_nota.get("order_id", "MAN-" + str(uuid.uuid4())[:6].upper())
+    sig_code = buat_signature_nota(order_id, payload_nota["nama"], total_akhir_calc)
+
+    base_admin_url = cfg_toko.get("admin_url", "").strip().rstrip("/")
+    if not base_admin_url:
+        base_admin_url = "https://share.streamlit.io"
+
+    params_qr = urllib.parse.urlencode({
+        "cek": order_id,
+        "n": payload_nota["nama"],
+        "t": total_akhir_calc,
+        "sig": sig_code
+    })
+    verify_url = f"{base_admin_url}/?{params_qr}"
+
+    data_for_js = dict(payload_nota)
+    data_for_js["order_id"] = order_id
+    data_for_js["sig_code"] = sig_code
+    data_for_js["verify_url"] = verify_url
+
     html_template = """
     <!DOCTYPE html>
     <html lang="id">
@@ -137,6 +261,7 @@ def tampilkan_nota_estetik(payload_nota):
         <meta charset="UTF-8">
         <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
         <style>
             :root {
                 --pink-main: #d81b60;
@@ -165,13 +290,28 @@ def tampilkan_nota_estetik(payload_nota):
                 height: 8px;
                 background: linear-gradient(90deg, #fce4ec, #f48fb1, #d81b60, #f48fb1, #fce4ec);
             }
-            .header-nota { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+            /* Watermark halus anti-edit */
+            .watermark {
+                position: absolute;
+                top: 46%;
+                left: 50%;
+                transform: translate(-50%, -50%) rotate(-24deg);
+                font-size: 28px;
+                font-weight: 700;
+                color: rgba(216, 27, 96, 0.06);
+                white-space: nowrap;
+                pointer-events: none;
+                z-index: 0;
+                letter-spacing: 3px;
+            }
+            .content-layer { position: relative; z-index: 1; }
+            .header-nota { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
             .brand h1 { font-family: 'Dancing Script', cursive; font-size: 42px; line-height: 0.9; }
             .brand p { font-family: 'Dancing Script', cursive; font-size: 22px; text-align: center; }
             .contact { font-size: 13px; font-weight: 700; text-align: right; color: var(--pink-main); }
             .contact p { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 4px; }
-            .thanks-top { font-family: 'Dancing Script', cursive; font-size: 20px; text-align: center; margin-top: 10px; }
-            .info-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
+            .thanks-top { font-family: 'Dancing Script', cursive; font-size: 20px; text-align: center; margin-top: 8px; }
+            .info-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
             .info-box {
                 border: 1.5px solid var(--pink-border);
                 border-radius: 25px;
@@ -180,10 +320,10 @@ def tampilkan_nota_estetik(payload_nota):
                 font-weight: 700;
                 text-align: center;
                 flex: 1;
-                background: white;
+                background: rgba(255,255,255,0.85);
             }
             .info-box span { display: block; color: var(--text-dark); font-size: 14px; margin-top: 3px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; text-align: center; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 14px; text-align: center; background: rgba(255,255,255,0.85); }
             table th, table td { border: 1.5px solid var(--pink-border); padding: 8px 6px; font-weight: 600; }
             table th { background-color: var(--pink-light); font-size: 13px; color: var(--pink-main); }
             table td { color: var(--text-dark); font-size: 13px; }
@@ -191,7 +331,37 @@ def tampilkan_nota_estetik(payload_nota):
             .align-left { text-align: left; }
             .grand-total { font-family: 'Dancing Script', cursive; font-size: 28px; color: var(--pink-main); background-color: var(--pink-light); }
             .grand-total-val { font-size: 20px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; }
-            .footer-thanks { background-color: var(--pink-light); border-radius: 15px; padding: 15px; text-align: center; margin-top: 10px; }
+            .footer-area {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                background-color: var(--pink-light);
+                border-radius: 15px;
+                padding: 12px 14px;
+                margin-top: 8px;
+            }
+            .footer-text { text-align: left; flex: 1; }
+            .auth-badge {
+                display: inline-block;
+                margin-top: 5px;
+                font-size: 10px;
+                font-weight: 700;
+                color: #2e7d32;
+                background: #e8f5e9;
+                border: 1px solid #a5d6a7;
+                padding: 2px 8px;
+                border-radius: 10px;
+            }
+            #qrcode-box {
+                background: white;
+                padding: 5px;
+                border-radius: 8px;
+                border: 1px solid var(--pink-border);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
             .btn-dl {
                 display: block; width: 100%; max-width: 450px; margin: 14px auto 0;
                 background-color: #2e7d32; color: white; border: none; padding: 13px;
@@ -207,70 +377,77 @@ def tampilkan_nota_estetik(payload_nota):
     </head>
     <body>
         <div class="nota-box" id="nota-area">
-            <div class="header-nota">
-                <div class="brand">
-                    <h1>homedress</h1>
-                    <p>♡ bykamila ♡</p>
-                </div>
-                <div>
-                    <div class="contact">
-                        <p>
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                            </svg>
-                            bykamila__
-                        </p>
-                        <p>
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                            </svg>
-                            0895-2608-7445
-                        </p>
+            <div class="watermark" id="wm-text">LUNAS • BYKAMILA</div>
+            <div class="content-layer">
+                <div class="header-nota">
+                    <div class="brand">
+                        <h1>homedress</h1>
+                        <p>♡ bykamila ♡</p>
                     </div>
-                    <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
+                    <div>
+                        <div class="contact">
+                            <p>
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                                    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                                    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                                </svg>
+                                bykamila__
+                            </p>
+                            <p>
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                                </svg>
+                                0895-2608-7445
+                            </p>
+                        </div>
+                        <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
+                    </div>
                 </div>
-            </div>
 
-            <div class="info-row">
-                <div class="info-box">Nama Customer<span id="out-nama"></span></div>
-                <div class="info-box">Tanggal Order<span id="out-tanggal"></span></div>
-            </div>
+                <div class="info-row">
+                    <div class="info-box">Nama Customer<span id="out-nama"></span></div>
+                    <div class="info-box">Tanggal Order<span id="out-tanggal"></span></div>
+                </div>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th width="10%">No</th>
-                        <th width="45%">Nama Barang</th>
-                        <th width="20%">Jumlah</th>
-                        <th width="25%">Harga</th>
-                    </tr>
-                </thead>
-                <tbody id="out-items"></tbody>
-                <tbody>
-                    <tr>
-                        <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
-                        <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal"></td>
-                    </tr>
-                    <tr id="row-diskon" style="display: none;">
-                        <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
-                        <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);"></td>
-                    </tr>
-                    <tr>
-                        <td colspan="3" class="align-left">Ongkir</td>
-                        <td class="align-right" id="out-ongkir"></td>
-                    </tr>
-                    <tr>
-                        <td colspan="3" class="grand-total align-left">Total</td>
-                        <td class="grand-total-val align-right" id="out-total"></td>
-                    </tr>
-                </tbody>
-            </table>
+                <table>
+                    <thead>
+                        <tr>
+                            <th width="10%">No</th>
+                            <th width="45%">Nama Barang</th>
+                            <th width="20%">Jumlah</th>
+                            <th width="25%">Harga</th>
+                        </tr>
+                    </thead>
+                    <tbody id="out-items"></tbody>
+                    <tbody>
+                        <tr>
+                            <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
+                            <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal"></td>
+                        </tr>
+                        <tr id="row-diskon" style="display: none;">
+                            <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
+                            <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);"></td>
+                        </tr>
+                        <tr>
+                            <td colspan="3" class="align-left">Ongkir</td>
+                            <td class="align-right" id="out-ongkir"></td>
+                        </tr>
+                        <tr>
+                            <td colspan="3" class="grand-total align-left">Total</td>
+                            <td class="grand-total-val align-right" id="out-total"></td>
+                        </tr>
+                    </tbody>
+                </table>
 
-            <div class="footer-thanks">
-                <span style="font-family: 'Dancing Script', cursive; font-size: 24px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
-                <span style="font-size: 13px; font-weight: 600; color: var(--text-dark);">- Semoga suka dengan produknya di Homedress bykamila -</span>
+                <div class="footer-area">
+                    <div class="footer-text">
+                        <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
+                        <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
+                        <span class="auth-badge" id="out-auth">✔ LUNAS • AUTH: </span>
+                    </div>
+                    <div id="qrcode-box"></div>
+                </div>
             </div>
         </div>
 
@@ -286,6 +463,8 @@ def tampilkan_nota_estetik(payload_nota):
 
             document.getElementById('out-nama').innerText = data.nama;
             document.getElementById('out-tanggal').innerText = data.tanggal;
+            document.getElementById('wm-text').innerText = `LUNAS • ${data.order_id} • BYKAMILA`;
+            document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
 
             let rowsHTML = '';
             let subtotal = 0;
@@ -319,6 +498,16 @@ def tampilkan_nota_estetik(payload_nota):
             document.getElementById('out-ongkir').innerText = 'Rp ' + formatRp(data.ongkir);
             document.getElementById('out-total').innerText = 'Rp ' + formatRp(totalAkhir);
 
+            // Render QR Code Verifikasi Keaslian
+            new QRCode(document.getElementById("qrcode-box"), {
+                text: data.verify_url,
+                width: 64,
+                height: 64,
+                colorDark: "#d81b60",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
             function downloadNotaJPG() {
                 html2canvas(document.getElementById('nota-area'), { scale: 2, backgroundColor: "#ffffff" }).then(canvas => {
                     const url = canvas.toDataURL('image/jpeg', 0.95);
@@ -326,7 +515,7 @@ def tampilkan_nota_estetik(payload_nota):
                     document.getElementById('jpg-preview-area').style.display = 'block';
 
                     const a = document.createElement('a');
-                    a.download = `Nota_${data.nama}.jpg`;
+                    a.download = `Nota_Lunas_${data.nama}.jpg`;
                     a.href = url;
                     a.click();
                 });
@@ -335,10 +524,10 @@ def tampilkan_nota_estetik(payload_nota):
     </body>
     </html>
     """
-    final_html = html_template.replace("__DATA_JSON__", json.dumps(payload_nota))
-    components.html(final_html, height=760, scrolling=True)
+    final_html = html_template.replace("__DATA_JSON__", json.dumps(data_for_js))
+    components.html(final_html, height=780, scrolling=True)
 
-# --- 6. HEADER & TOMBOL REFRESH / LOGOUT ---
+# --- 8. HEADER & TOMBOL REFRESH / LOGOUT ---
 col_head1, col_head2, col_head3 = st.columns([3.2, 1.1, 1.1])
 with col_head1:
     st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Admin ByKamila ♡</h3>", unsafe_allow_html=True)
@@ -349,7 +538,7 @@ with col_head3:
     if st.button("🚪 Logout", use_container_width=True):
         proses_logout()
 
-tab1, tab2, tab3 = st.tabs(["📋 Pesanan Masuk", "🧾 Nota Manual", "📦 Kelola Stok"])
+tab1, tab2, tab3 = st.tabs(["📋 Pesanan Masuk", "🧾 Nota Manual", "📦 Kelola Stok & QRIS"])
 
 # ==============================================================================
 # TAB 1: VERIFIKASI & CANCEL PESANAN DARI KATALOG
@@ -435,6 +624,7 @@ with tab1:
 
                             tgl_nota = " ".join(order["tgl"].split()[:3]) if len(order["tgl"].split()) >= 3 else order["tgl"]
                             st.session_state.nota_verified = {
+                                "order_id": oid,
                                 "nama": order["nama"],
                                 "tanggal": tgl_nota,
                                 "items": order["items"],
@@ -513,6 +703,7 @@ with tab2:
             bulan_id = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
             tgl_fmt = f"{m_tgl.day} {bulan_id[m_tgl.month - 1]} {m_tgl.year}"
             st.session_state.nota_manual_preview = {
+                "order_id": "MAN-" + str(uuid.uuid4())[:6].upper(),
                 "nama": m_nama.strip(),
                 "tanggal": tgl_fmt,
                 "items": items_manual,
@@ -524,11 +715,47 @@ with tab2:
         tampilkan_nota_estetik(st.session_state.nota_manual_preview)
 
 # ==============================================================================
-# TAB 3: KELOLA STOK, TAMBAH PRODUK & UPLOAD FOTO DARI HP
+# TAB 3: KELOLA STOK, UPLOAD FOTO & PENGATURAN QRIS PEMBAYARAN
 # ==============================================================================
 with tab3:
     stok_list = sheet_produk.get_all_records()
 
+    # --- PENGATURAN QRIS & LINK VERIFIKASI ---
+    with st.expander("💳 Pengaturan QRIS Pembayaran & Link Verifikasi Nota", expanded=False):
+        with st.form("form_pengaturan_qris"):
+            qris_file = st.file_uploader("Upload Gambar QRIS Toko dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
+            info_rek_in = st.text_area(
+                "Info Rekening Tambahan (Opsional)",
+                value=cfg_toko.get("info_bayar", ""),
+                placeholder="Contoh: BCA 1234567890 a.n. Kamila"
+            )
+            admin_url_in = st.text_input(
+                "Link Web Admin Ini (Untuk tujuan scan QR Keaslian Nota)",
+                value=cfg_toko.get("admin_url", ""),
+                placeholder="Contoh: https://bykamila.streamlit.app"
+            )
+            simpan_qris = st.form_submit_button("💾 Simpan Pengaturan Pembayaran", type="primary", use_container_width=True)
+
+            if simpan_qris:
+                qris_url_final = cfg_toko.get("qris_url", "")
+                ok_qris = True
+                if qris_file is not None:
+                    with st.spinner("Mengunggah gambar QRIS..."):
+                        up_qris, err_qris = upload_foto_galeri(qris_file)
+                        if err_qris:
+                            st.error(err_qris)
+                            ok_qris = False
+                        else:
+                            qris_url_final = up_qris
+
+                if ok_qris:
+                    sheet_pengaturan.update_cell(2, 2, qris_url_final)
+                    sheet_pengaturan.update_cell(3, 2, info_rek_in.strip())
+                    sheet_pengaturan.update_cell(4, 2, admin_url_in.strip())
+                    st.success("✅ Pengaturan QRIS & Link Verifikasi berhasil disimpan!")
+                    st.rerun()
+
+    # --- TAMBAH PRODUK BARU ---
     with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
         with st.form("form_tambah_produk", clear_on_submit=True):
             nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Daster Gamis Kanaya - Dusty Pink")
@@ -571,6 +798,7 @@ with tab3:
                             st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
                             st.rerun()
 
+    # --- UPDATE STOK / UBAH HARGA ---
     with st.expander("✏️ Update Stok / Ubah Harga Produk Lama", expanded=False):
         if not stok_list:
             st.info("Belum ada produk di database.")
@@ -626,6 +854,7 @@ with tab3:
                     st.warning(f"Produk **{nama_diedit}** telah dihapus dari katalog.")
                     st.rerun()
 
+    # --- TABEL RINGKASAN STOK ---
     st.subheader("Daftar Persediaan Saat Ini")
     if stok_list:
         tampil_stok = [
