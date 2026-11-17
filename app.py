@@ -43,7 +43,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. KUNCI KEAMANAN & FUNGSI TANDA TANGAN DIGITAL ---
-PIN_ADMIN = str(st.secrets.get("admin_pin", "1234")).strip()
+PIN_ADMIN = str(st.secrets.get("admin_pin", "0305")).strip()
 SALT_KEY = str(st.secrets.get("gcp_service_account", {}).get("private_key_id", "bykamila_secret"))
 SESSION_TOKEN = hashlib.sha256(f"{PIN_ADMIN}:{SALT_KEY}".encode()).hexdigest()[:24]
 
