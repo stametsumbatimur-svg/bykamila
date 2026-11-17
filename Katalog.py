@@ -6,6 +6,7 @@ import datetime
 import uuid
 import re
 import urllib.parse
+import requests
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Katalog Homedress ByKamila", page_icon="🌸", layout="centered")
@@ -13,25 +14,17 @@ st.set_page_config(page_title="Katalog Homedress ByKamila", page_icon="🌸", la
 st.markdown("""
     <style>
         .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
-        .product-card {
-            background: #ffffff;
-            border: 1.5px solid #fce4ec;
-            border-radius: 14px;
-            padding: 10px;
-            margin-bottom: 12px;
-            box-shadow: 0 3px 10px rgba(216, 27, 96, 0.06);
-        }
         .product-title {
             font-weight: 700;
             font-size: 15px;
-            color: #333;
+            color: var(--text-color);
             margin-top: 8px;
             margin-bottom: 2px;
         }
         .product-price {
             font-weight: 700;
             font-size: 15px;
-            color: #d81b60;
+            color: #ff4b8b;
         }
         .stock-badge {
             display: inline-block;
@@ -39,21 +32,33 @@ st.markdown("""
             color: #d81b60;
             font-size: 12px;
             font-weight: 700;
-            padding: 2px 8px;
+            padding: 2px 10px;
             border-radius: 20px;
             margin-top: 4px;
             margin-bottom: 8px;
         }
+        .no-photo-box {
+            background: #fce4ec;
+            color: #d81b60;
+            border-radius: 10px;
+            height: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: cursive;
+            font-size: 20px;
+            font-weight: bold;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center; color: #d81b60; font-family: cursive; margin-bottom: 0;'>♡ Homedress ByKamila ♡</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; font-size: 14px; color: #666;'>Pilih motif ready stock di bawah ini. Stok otomatis terkunci saat checkout.</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #ff4b8b; font-family: cursive; margin-bottom: 0;'>♡ Homedress ByKamila ♡</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 14px; opacity: 0.85;'>Pilih motif ready stock di bawah ini. Stok otomatis terkunci saat checkout.</p>", unsafe_allow_html=True)
 
-# --- 2. FUNGSI BANTUAN KONVERSI LINK FOTO GOOGLE DRIVE ---
+# --- 2. FUNGSI AMBIL GAMBAR LEWAT SERVER (ANTI BLOKIR OPERATOR) ---
 def format_image_url(url):
     if not url or not isinstance(url, str):
-        return "https://placehold.co/400x450/fce4ec/d81b60?text=ByKamila"
+        return ""
     url = url.strip()
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
     if not match:
@@ -62,6 +67,19 @@ def format_image_url(url):
         file_id = match.group(1)
         return f"https://drive.google.com/thumbnail?id={file_id}&sz=w800"
     return url
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def ambil_bytes_gambar(raw_url):
+    clean_url = format_image_url(raw_url)
+    if not clean_url:
+        return None
+    try:
+        res = requests.get(clean_url, timeout=12)
+        if res.status_code == 200 and res.content:
+            return res.content
+    except Exception:
+        pass
+    return None
 
 # --- 3. KONEKSI KE GOOGLE SHEETS ---
 @st.cache_resource
@@ -93,8 +111,7 @@ produk_ready = [p for p in data_produk if p.get('Stok Tersedia') != '' and int(p
 if st.session_state.last_order:
     order = st.session_state.last_order
     st.success(f"🎉 Booking Berhasil! ID Pesanan: **{order['id']}**")
-    
-    # Render Nota Booking HTML + Tombol Simpan JPG
+
     items_rows = ""
     for idx, item in enumerate(order['items'], start=1):
         items_rows += f"""
@@ -107,7 +124,7 @@ if st.session_state.last_order:
         """.replace(",", ".")
 
     total_fmt = f"Rp {order['total']:,.0f}".replace(",", ".")
-    
+
     nota_html = f"""
     <!DOCTYPE html>
     <html>
@@ -181,7 +198,6 @@ if st.session_state.last_order:
     """
     components.html(nota_html, height=460, scrolling=True)
 
-    # Tombol Kirim Pesan Otomatis ke WhatsApp Admin
     daftar_teks = "\n".join([f"- {i['nama']} ({i['qty']} pcs)" for i in order['items']])
     pesan_wa = (
         f"Halo Kak, saya sudah booking di Katalog ByKamila:\n\n"
@@ -205,7 +221,6 @@ st.subheader("👗 Katalog Ready Stock")
 if not produk_ready:
     st.warning("Mohon maaf, saat ini semua motif sedang habis terjual 🙏")
 else:
-    # Tampilkan 2 kolom per baris agar rapi di HP maupun Laptop
     for i in range(0, len(produk_ready), 2):
         cols = st.columns(2)
         for j in range(2):
@@ -214,12 +229,16 @@ else:
                 nama_brg = str(item['Nama Barang'])
                 harga_brg = int(item['Harga'])
                 stok_brg = int(item['Stok Tersedia'])
-                foto_url = format_image_url(item.get('Foto URL', ''))
+                img_data = ambil_bytes_gambar(item.get('Foto URL', ''))
                 qty_di_cart = st.session_state.cart.get(nama_brg, 0)
 
                 with cols[j]:
                     with st.container(border=True):
-                        st.image(foto_url, use_container_width=True)
+                        if img_data:
+                            st.image(img_data, use_container_width=True)
+                        else:
+                            st.markdown("<div class='no-photo-box'>♡ ByKamila ♡</div>", unsafe_allow_html=True)
+
                         st.markdown(f"<div class='product-title'>{nama_brg}</div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='product-price'>Rp {harga_brg:,.0f}</div>".replace(",", "."), unsafe_allow_html=True)
                         st.markdown(f"<div class='stock-badge'>Ready: {stok_brg} pcs</div>", unsafe_allow_html=True)
@@ -243,7 +262,6 @@ else:
     keranjang_valid = {}
 
     for nama_brg, qty in list(st.session_state.cart.items()):
-        # Cocokkan dengan data stok terbaru
         detail = next((p for p in produk_ready if str(p['Nama Barang']) == nama_brg), None)
         if detail:
             maks_stok = int(detail['Stok Tersedia'])
@@ -284,7 +302,6 @@ else:
                 st.error("Nama dan Nomor WhatsApp wajib diisi ya kak!")
             else:
                 with st.spinner("Sedang mengecek ketersediaan stok terbaru & mengunci pesanan..."):
-                    # Baca ulang sheet produk real-time untuk mencegah tabrakan pembeli bersamaan
                     data_produk_terbaru = sheet_produk.get_all_records()
                     stok_cukup = True
                     item_terproses = []
@@ -307,13 +324,11 @@ else:
                             sub = harga_sat * qty_pesan
                             nama_item = str(detail_brg['Nama Barang'])
 
-                            # 1. Catat ke sheet Pesanan
                             sheet_pesanan.append_row([
                                 id_pesanan, tgl_sekarang, nama_pembeli.strip(), no_wa.strip(),
                                 nama_item, qty_pesan, sub, "Menunggu Verifikasi"
                             ])
 
-                            # 2. Tambah angka Stok Terkunci di sheet Produk (Kolom F / ke-6)
                             baris_sheet = data_produk_terbaru.index(detail_brg) + 2
                             terkunci_lama = int(detail_brg['Stok Terkunci']) if detail_brg['Stok Terkunci'] != '' else 0
                             sheet_produk.update_cell(baris_sheet, 6, terkunci_lama + qty_pesan)
