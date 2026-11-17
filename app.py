@@ -63,7 +63,7 @@ def ambil_bytes_gambar(url):
         pass
     return None
 
-# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
+# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS ---
 @st.cache_resource
 def get_google_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -76,6 +76,12 @@ def load_admin_data():
     db = get_google_sheet()
     ws_produk = db.worksheet("Produk")
     ws_pesanan = db.worksheet("Pesanan")
+
+    # Pastikan header kolom H (Keterangan) tersedia otomatis
+    header_produk = ws_produk.row_values(1)
+    if len(header_produk) < 8 or str(header_produk[7]).strip() != "Keterangan":
+        ws_produk.update_cell(1, 8, "Keterangan")
+
     data_produk = ws_produk.get_all_records()
     data_pesanan = ws_pesanan.get_all_records()
 
@@ -767,19 +773,25 @@ with tab2:
         tampilkan_nota_estetik(st.session_state.nota_manual_preview)
 
 # ==============================================================================
-# TAB 3: KELOLA STOK & UPLOAD FOTO PRODUK
+# TAB 3: KELOLA STOK, UPLOAD FOTO & KETERANGAN PRODUK
 # ==============================================================================
 with tab3:
     stok_list = data_produk_admin
 
     with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
         with st.form("form_tambah_produk", clear_on_submit=True):
-            nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Daster Gamis Kanaya - Dusty Pink")
+            nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Mecca Prayer Set")
             c_t1, c_t2 = st.columns(2)
             with c_t1:
                 harga_baru = st.number_input("Harga Satuan (Rp)", min_value=0, step=5000, value=115000)
             with c_t2:
                 stok_baru = st.number_input("Jumlah Stok Awal (pcs)", min_value=1, step=1, value=1)
+
+            ket_baru = st.text_area(
+                "Keterangan / Detail Produk (Bisa copy-paste dari WhatsApp)",
+                height=140,
+                placeholder="Contoh:\nBahan : Rayon Premium\nAll size muat BB sd 100 kg\n\nSize Chart:\nPj Depan +- 118 cm\nBerat : +- 600gr"
+            )
 
             foto_file = st.file_uploader("Upload Foto dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
             foto_link_manual = st.text_input("Atau Tempel Link Foto (Opsional jika tidak upload)")
@@ -810,14 +822,23 @@ with tab3:
                             baris_baru = len(ws_produk.get_all_values()) + 1
                             rumus_tersedia = f"=E{baris_baru}-F{baris_baru}"
                             ws_produk.append_row(
-                                [id_prd, nama_baru.strip(), int(harga_baru), url_foto_final, int(stok_baru), 0, rumus_tersedia],
+                                [
+                                    id_prd,
+                                    nama_baru.strip(),
+                                    int(harga_baru),
+                                    url_foto_final,
+                                    int(stok_baru),
+                                    0,
+                                    rumus_tersedia,
+                                    ket_baru.strip()
+                                ],
                                 value_input_option="USER_ENTERED"
                             )
                             load_admin_data.clear()
                             st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
                             st.rerun()
 
-    with st.expander("✏️ Update Stok / Ubah Harga Produk Lama", expanded=False):
+    with st.expander("✏️ Update Stok, Harga & Keterangan Produk Lama", expanded=False):
         if not stok_list:
             st.info("Belum ada produk di database.")
         else:
@@ -832,14 +853,21 @@ with tab3:
                 f"Tersedia di Katalog: **{data_lama.get('Stok Tersedia', 0)} pcs**"
             )
 
-            with st.form("form_edit_produk"):
+            with st.form(f"form_edit_produk_{idx_edit}"):
                 c_e1, c_e2 = st.columns(2)
                 with c_e1:
                     harga_edit = st.number_input("Harga Satuan (Rp)", min_value=0, step=5000, value=int(data_lama.get("Harga", 0)))
                 with c_e2:
                     stok_tot_edit = st.number_input("Stok Total (pcs)", min_value=0, step=1, value=int(data_lama.get("Stok Total", 0)))
 
-                foto_ganti = st.file_uploader("Ganti Foto Baru (Biarkan kosong jika tidak diganti)", type=["jpg", "jpeg", "png", "webp"], key="ganti_foto")
+                ket_edit = st.text_area(
+                    "Keterangan / Detail Produk",
+                    value=str(data_lama.get("Keterangan", "")),
+                    height=140,
+                    placeholder="Isi keterangan bahan, ukuran, berat, dll..."
+                )
+
+                foto_ganti = st.file_uploader("Ganti Foto Baru (Biarkan kosong jika tidak diganti)", type=["jpg", "jpeg", "png", "webp"], key=f"ganti_foto_{idx_edit}")
 
                 c_btn_e1, c_btn_e2 = st.columns(2)
                 with c_btn_e1:
@@ -866,6 +894,13 @@ with tab3:
                             ws_produk.update_cell(baris_sheet_edit, 3, int(harga_edit))
                             ws_produk.update_cell(baris_sheet_edit, 4, url_foto_baru)
                             ws_produk.update_cell(baris_sheet_edit, 5, int(stok_tot_edit))
+                            if ket_edit.strip() == "":
+                                try:
+                                    ws_produk.batch_clear([f"H{baris_sheet_edit}"])
+                                except Exception:
+                                    ws_produk.update_cell(baris_sheet_edit, 8, "")
+                            else:
+                                ws_produk.update_cell(baris_sheet_edit, 8, ket_edit.strip())
                             load_admin_data.clear()
                             st.success(f"✅ Data **{nama_diedit}** berhasil diperbarui!")
                             st.rerun()
@@ -919,7 +954,6 @@ with tab4:
     else:
         st.warning("Belum ada gambar QRIS yang di-upload. Silakan upload pada formulir di bawah ini (cukup 1 kali saja).")
 
-    # Panel khusus Info Rekening + Tombol Hapus sekali klik
     if info_bayar_tersimpan:
         with st.container(border=True):
             st.info(f"**Info Rekening / Pembayaran Aktif:**\n\n{info_bayar_tersimpan}")
