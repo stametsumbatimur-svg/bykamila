@@ -7,6 +7,7 @@ import uuid
 import re
 import urllib.parse
 import requests
+import html
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Katalog Homedress ByKamila", page_icon="🌸", layout="centered")
@@ -90,7 +91,7 @@ def ambil_bytes_gambar(raw_url):
         pass
     return None
 
-# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
+# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS ---
 @st.cache_resource
 def get_google_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -288,7 +289,7 @@ if st.session_state.last_order:
         st.rerun()
     st.divider()
 
-# --- 7. TAMPILAN GALERI KATALOG PRODUK + TOMBOL REFRESH KONTEN ---
+# --- 7. TAMPILAN GALERI KATALOG PRODUK + KETERANGAN ---
 col_kat1, col_kat2 = st.columns([2.8, 1.4])
 with col_kat1:
     st.subheader("👗 Katalog Ready Stock")
@@ -309,6 +310,7 @@ else:
                 nama_brg = str(item['Nama Barang'])
                 harga_brg = int(item['Harga'])
                 stok_brg = int(item['Stok Tersedia'])
+                ket_brg = str(item.get('Keterangan', '')).strip()
                 img_data = ambil_bytes_gambar(item.get('Foto URL', ''))
                 qty_di_cart = st.session_state.cart.get(nama_brg, 0)
 
@@ -322,6 +324,14 @@ else:
                         st.markdown(f"<div class='product-title'>{nama_brg}</div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='product-price'>Rp {harga_brg:,.0f}</div>".replace(",", "."), unsafe_allow_html=True)
                         st.markdown(f"<div class='stock-badge'>Ready: {stok_brg} pcs</div>", unsafe_allow_html=True)
+
+                        if ket_brg:
+                            with st.expander("📋 Detail & Size Chart"):
+                                ket_aman = html.escape(ket_brg).replace("\n", "<br>")
+                                st.markdown(
+                                    f"<div style='font-size: 13px; line-height: 1.5; color: var(--text-color);'>{ket_aman}</div>",
+                                    unsafe_allow_html=True
+                                )
 
                         if qty_di_cart >= stok_brg:
                             st.button("Stok Maksimal", key=f"btn_{i+j}", disabled=True, use_container_width=True)
