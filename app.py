@@ -51,6 +51,18 @@ def buat_signature_nota(order_id, nama, total_akhir):
     raw = f"{order_id.strip()}|{nama.strip().lower()}|{int(total_akhir)}|{SALT_KEY}"
     return hashlib.sha256(raw.encode()).hexdigest()[:8].upper()
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def ambil_bytes_gambar(url):
+    if not url or not isinstance(url, str):
+        return None
+    try:
+        res = requests.get(url.strip(), timeout=12)
+        if res.status_code == 200 and res.content:
+            return res.content
+    except Exception:
+        pass
+    return None
+
 # --- 3. KONEKSI KE GOOGLE SHEETS ---
 @st.cache_resource
 def get_google_sheet():
@@ -80,6 +92,14 @@ def get_pengaturan():
     return ws, {str(r["Kunci"]): str(r["Nilai"]) for r in records}
 
 sheet_pengaturan, cfg_toko = get_pengaturan()
+
+def simpan_pengaturan(kunci, nilai):
+    all_vals = sheet_pengaturan.get_all_values()
+    for idx, row in enumerate(all_vals, start=1):
+        if len(row) > 0 and str(row[0]).strip() == kunci:
+            sheet_pengaturan.update_cell(idx, 2, nilai)
+            return
+    sheet_pengaturan.append_row([kunci, nilai])
 
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA LUNAS DI-SCAN ---
 if "cek" in st.query_params:
@@ -131,7 +151,6 @@ if "cek" in st.query_params:
                 </div>
             """, unsafe_allow_html=True)
     else:
-        # Untuk Nota Manual (MAN-XXXXXX)
         if sig_cocok:
             st.markdown(f"""
                 <div class='verify-valid'>
@@ -290,7 +309,6 @@ def tampilkan_nota_estetik(payload_nota):
                 height: 8px;
                 background: linear-gradient(90deg, #fce4ec, #f48fb1, #d81b60, #f48fb1, #fce4ec);
             }
-            /* Watermark halus anti-edit */
             .watermark {
                 position: absolute;
                 top: 46%;
@@ -498,7 +516,6 @@ def tampilkan_nota_estetik(payload_nota):
             document.getElementById('out-ongkir').innerText = 'Rp ' + formatRp(data.ongkir);
             document.getElementById('out-total').innerText = 'Rp ' + formatRp(totalAkhir);
 
-            // Render QR Code Verifikasi Keaslian
             new QRCode(document.getElementById("qrcode-box"), {
                 text: data.verify_url,
                 width: 64,
@@ -538,7 +555,7 @@ with col_head3:
     if st.button("🚪 Logout", use_container_width=True):
         proses_logout()
 
-tab1, tab2, tab3 = st.tabs(["📋 Pesanan Masuk", "🧾 Nota Manual", "📦 Kelola Stok & QRIS"])
+tab1, tab2, tab3, tab4 = st.tabs(["📋 Pesanan", "🧾 Nota", "📦 Stok", "💳 QRIS"])
 
 # ==============================================================================
 # TAB 1: VERIFIKASI & CANCEL PESANAN DARI KATALOG
@@ -715,47 +732,11 @@ with tab2:
         tampilkan_nota_estetik(st.session_state.nota_manual_preview)
 
 # ==============================================================================
-# TAB 3: KELOLA STOK, UPLOAD FOTO & PENGATURAN QRIS PEMBAYARAN
+# TAB 3: KELOLA STOK & UPLOAD FOTO PRODUK
 # ==============================================================================
 with tab3:
     stok_list = sheet_produk.get_all_records()
 
-    # --- PENGATURAN QRIS & LINK VERIFIKASI ---
-    with st.expander("💳 Pengaturan QRIS Pembayaran & Link Verifikasi Nota", expanded=False):
-        with st.form("form_pengaturan_qris"):
-            qris_file = st.file_uploader("Upload Gambar QRIS Toko dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
-            info_rek_in = st.text_area(
-                "Info Rekening Tambahan (Opsional)",
-                value=cfg_toko.get("info_bayar", ""),
-                placeholder="Contoh: BCA 1234567890 a.n. Kamila"
-            )
-            admin_url_in = st.text_input(
-                "Link Web Admin Ini (Untuk tujuan scan QR Keaslian Nota)",
-                value=cfg_toko.get("admin_url", ""),
-                placeholder="Contoh: https://bykamila.streamlit.app"
-            )
-            simpan_qris = st.form_submit_button("💾 Simpan Pengaturan Pembayaran", type="primary", use_container_width=True)
-
-            if simpan_qris:
-                qris_url_final = cfg_toko.get("qris_url", "")
-                ok_qris = True
-                if qris_file is not None:
-                    with st.spinner("Mengunggah gambar QRIS..."):
-                        up_qris, err_qris = upload_foto_galeri(qris_file)
-                        if err_qris:
-                            st.error(err_qris)
-                            ok_qris = False
-                        else:
-                            qris_url_final = up_qris
-
-                if ok_qris:
-                    sheet_pengaturan.update_cell(2, 2, qris_url_final)
-                    sheet_pengaturan.update_cell(3, 2, info_rek_in.strip())
-                    sheet_pengaturan.update_cell(4, 2, admin_url_in.strip())
-                    st.success("✅ Pengaturan QRIS & Link Verifikasi berhasil disimpan!")
-                    st.rerun()
-
-    # --- TAMBAH PRODUK BARU ---
     with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
         with st.form("form_tambah_produk", clear_on_submit=True):
             nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Daster Gamis Kanaya - Dusty Pink")
@@ -798,7 +779,6 @@ with tab3:
                             st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
                             st.rerun()
 
-    # --- UPDATE STOK / UBAH HARGA ---
     with st.expander("✏️ Update Stok / Ubah Harga Produk Lama", expanded=False):
         if not stok_list:
             st.info("Belum ada produk di database.")
@@ -854,7 +834,6 @@ with tab3:
                     st.warning(f"Produk **{nama_diedit}** telah dihapus dari katalog.")
                     st.rerun()
 
-    # --- TABEL RINGKASAN STOK ---
     st.subheader("Daftar Persediaan Saat Ini")
     if stok_list:
         tampil_stok = [
@@ -868,3 +847,67 @@ with tab3:
             for p in stok_list
         ]
         st.dataframe(tampil_stok, use_container_width=True, hide_index=True)
+
+# ==============================================================================
+# TAB 4: PANEL KHUSUS QRIS TOKO (TANPA PERLU CHECKOUT)
+# ==============================================================================
+with tab4:
+    st.subheader("💳 Kartu QRIS & Rekening Toko")
+    qris_tersimpan = cfg_toko.get("qris_url", "").strip()
+    info_bayar_tersimpan = cfg_toko.get("info_bayar", "").strip()
+    qris_bytes_admin = ambil_bytes_gambar(qris_tersimpan) if qris_tersimpan else None
+
+    if qris_bytes_admin:
+        with st.container(border=True):
+            st.success("✅ QRIS aktif dan tersimpan permanen di database.")
+            c_q1, c_q2, c_q3 = st.columns([1, 2.2, 1])
+            with c_q2:
+                st.image(qris_bytes_admin, caption="QRIS Homedress ByKamila", use_container_width=True)
+                st.download_button(
+                    label="📥 Download Gambar QRIS (JPG)",
+                    data=qris_bytes_admin,
+                    file_name="QRIS_Homedress_ByKamila.jpg",
+                    mime="image/jpeg",
+                    type="primary",
+                    use_container_width=True
+                )
+            if info_bayar_tersimpan:
+                st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
+            st.caption("Tips iPhone: Tekan lama pada gambar QRIS di atas jika ingin langsung memilih 'Simpan ke Foto'.")
+    else:
+        st.warning("Belum ada gambar QRIS yang di-upload. Silakan upload pada formulir di bawah ini (cukup 1 kali saja).")
+
+    with st.expander("⚙️ Upload / Ganti QRIS & Pengaturan Link", expanded=(not bool(qris_bytes_admin))):
+        with st.form("form_pengaturan_qris"):
+            qris_file = st.file_uploader("Pilih Gambar QRIS dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
+            info_rek_in = st.text_area(
+                "Info Rekening Tambahan (Opsional)",
+                value=info_bayar_tersimpan,
+                placeholder="Contoh: BCA 1234567890 a.n. Kamila"
+            )
+            admin_url_in = st.text_input(
+                "Link Web Admin Ini (Untuk tujuan scan QR Keaslian Nota)",
+                value=cfg_toko.get("admin_url", ""),
+                placeholder="Contoh: https://bykamila.streamlit.app"
+            )
+            simpan_qris = st.form_submit_button("💾 Simpan QRIS & Pengaturan", type="primary", use_container_width=True)
+
+            if simpan_qris:
+                qris_url_final = qris_tersimpan
+                ok_qris = True
+                if qris_file is not None:
+                    with st.spinner("Mengunggah gambar QRIS permanen..."):
+                        up_qris, err_qris = upload_foto_galeri(qris_file)
+                        if err_qris:
+                            st.error(err_qris)
+                            ok_qris = False
+                        else:
+                            qris_url_final = up_qris
+
+                if ok_qris:
+                    simpan_pengaturan("qris_url", qris_url_final)
+                    simpan_pengaturan("info_bayar", info_rek_in.strip())
+                    simpan_pengaturan("admin_url", admin_url_in.strip())
+                    ambil_bytes_gambar.clear()
+                    st.success("✅ QRIS & pengaturan pembayaran berhasil disimpan permanen!")
+                    st.rerun()
