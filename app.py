@@ -77,7 +77,6 @@ def load_admin_data():
     ws_produk = db.worksheet("Produk")
     ws_pesanan = db.worksheet("Pesanan")
 
-    # Pastikan header kolom H (Keterangan) tersedia otomatis
     header_produk = ws_produk.row_values(1)
     if len(header_produk) < 8 or str(header_produk[7]).strip() != "Keterangan":
         ws_produk.update_cell(1, 8, "Keterangan")
@@ -280,7 +279,7 @@ def upload_foto_galeri(uploaded_file):
     except Exception as e:
         return None, f"Koneksi upload gagal: {e}"
 
-# --- 7. FUNGSI RENDER NOTA PINK ESTETIK + QR KEASLIAN + WATERMARK ---
+# --- 7. FUNGSI RENDER NOTA PINK ESTETIK (HARGA SATUAN + SUBTOTAL TERHITUNG) ---
 def tampilkan_nota_estetik(payload_nota):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
@@ -529,7 +528,7 @@ def tampilkan_nota_estetik(payload_nota):
                             <td>${i + 1}</td>
                             <td class="align-left">${it.nama}</td>
                             <td>${it.qty} pcs</td>
-                            <td class="align-right">Rp ${formatRp(lineTotal)}</td>
+                            <td class="align-right">Rp ${formatRp(it.harga)}</td>
                         </tr>`;
                 } else {
                     rowsHTML += `<tr><td>&nbsp;</td><td></td><td></td><td></td></tr>`;
@@ -644,7 +643,7 @@ with tab1:
 
                 total_brg = 0
                 for it in order["items"]:
-                    st.write(f"• {it['nama']} — **{it['qty']} pcs** (Rp {it['subtotal']:,.0f})".replace(",", "."))
+                    st.write(f"• {it['nama']} — {it['qty']} pcs x Rp {it['harga']:,.0f} = **Rp {it['subtotal']:,.0f}**".replace(",", "."))
                     total_brg += it["subtotal"]
                 st.markdown(f"**Subtotal Barang: Rp {total_brg:,.0f}**".replace(",", "."))
 
