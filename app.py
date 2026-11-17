@@ -7,6 +7,8 @@ import json
 import uuid
 import base64
 import requests
+import hashlib
+import time
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Admin & Nota ByKamila", page_icon="🌸", layout="centered")
@@ -14,27 +16,82 @@ st.set_page_config(page_title="Admin & Nota ByKamila", page_icon="🌸", layout=
 st.markdown("""
     <style>
         .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
+        .login-card {
+            background: #fff8fa;
+            border: 1.5px solid #f48fb1;
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. KEAMANAN PIN ADMIN ---
-PIN_ADMIN = st.secrets.get("admin_pin", "1234")
+# --- 2. SISTEM LOGIN, LOGOUT & KEAMANAN PIN ---
+PIN_ADMIN = str(st.secrets.get("admin_pin", "0305")).strip()
+SALT_KEY = str(st.secrets.get("gcp_service_account", {}).get("private_key_id", "bykamila_secret"))
+SESSION_TOKEN = hashlib.sha256(f"{PIN_ADMIN}:{SALT_KEY}".encode()).hexdigest()[:24]
 
 if "admin_auth" not in st.session_state:
     st.session_state.admin_auth = False
+if "login_attempts" not in st.session_state:
+    st.session_state.login_attempts = 0
+if "lockout_until" not in st.session_state:
+    st.session_state.lockout_until = 0.0
 
+# Cek apakah perangkat memiliki token "Ingat Saya" yang sah
 if not st.session_state.admin_auth:
-    st.markdown("<h2 style='text-align: center; color: #d81b60; font-family: cursive;'>♡ Admin Homedress ByKamila ♡</h2>", unsafe_allow_html=True)
-    with st.form("login_admin"):
-        pin_input = st.text_input("Masukkan PIN Admin", type="password", placeholder="Masukkan 4 digit PIN...")
-        masuk = st.form_submit_button("Masuk ke Halaman Admin", type="primary", use_container_width=True)
-        if masuk:
-            if pin_input == str(PIN_ADMIN):
+    if st.query_params.get("token") == SESSION_TOKEN:
+        st.session_state.admin_auth = True
+
+# Halaman Login jika belum terautentikasi
+if not st.session_state.admin_auth:
+    st.markdown("""
+        <div class='login-card'>
+            <h2 style='color: #d81b60; font-family: cursive; margin-bottom: 4px;'>♡ Admin ByKamila ♡</h2>
+            <p style='color: #666; font-size: 13px; margin: 0;'>Silakan masukkan PIN untuk mengelola pesanan & stok</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    sisa_kunci = int(st.session_state.lockout_until - time.time())
+    if sisa_kunci > 0:
+        st.error(f"Terlalu banyak percobaan salah. Coba lagi dalam {sisa_kunci} detik.")
+        st.stop()
+
+    with st.form("form_login_admin"):
+        pin_input = st.text_input("PIN Admin", type="password", placeholder="Masukkan PIN...")
+        ingat_saya = st.checkbox("Ingat saya di HP ini (tidak perlu ketik PIN tiap buka)", value=True)
+        btn_masuk = st.form_submit_button("🔓 Masuk ke Halaman Admin", type="primary", use_container_width=True)
+
+        if btn_masuk:
+            if pin_input.strip() == PIN_ADMIN:
                 st.session_state.admin_auth = True
+                st.session_state.login_attempts = 0
+                if ingat_saya:
+                    st.query_params["token"] = SESSION_TOKEN
+                else:
+                    if "token" in st.query_params:
+                        del st.query_params["token"]
                 st.rerun()
             else:
-                st.error("PIN salah! Silakan coba lagi.")
+                st.session_state.login_attempts += 1
+                sisa_coba = 5 - st.session_state.login_attempts
+                if sisa_coba <= 0:
+                    st.session_state.lockout_until = time.time() + 30
+                    st.session_state.login_attempts = 0
+                    st.error("PIN salah 5 kali. Halaman dikunci selama 30 detik.")
+                else:
+                    st.error(f"PIN salah! Sisa percobaan: {sisa_coba} kali.")
     st.stop()
+
+# Fungsi Logout bersih
+def proses_logout():
+    st.session_state.admin_auth = False
+    st.session_state.nota_verified = None
+    st.session_state.nota_manual_preview = None
+    if "token" in st.query_params:
+        del st.query_params["token"]
+    st.rerun()
 
 # --- 3. KONEKSI KE GOOGLE SHEETS ---
 @st.cache_resource
@@ -281,13 +338,16 @@ def tampilkan_nota_estetik(payload_nota):
     final_html = html_template.replace("__DATA_JSON__", json.dumps(payload_nota))
     components.html(final_html, height=760, scrolling=True)
 
-# --- 6. HEADER & NAVIGASI ADMIN ---
-col_head1, col_head2 = st.columns([4, 1])
+# --- 6. HEADER & TOMBOL REFRESH / LOGOUT ---
+col_head1, col_head2, col_head3 = st.columns([3.2, 1.1, 1.1])
 with col_head1:
-    st.markdown("<h2 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Admin ByKamila ♡</h2>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Admin ByKamila ♡</h3>", unsafe_allow_html=True)
 with col_head2:
-    if st.button("🔄 Refresh"):
+    if st.button("🔄 Refresh", use_container_width=True):
         st.rerun()
+with col_head3:
+    if st.button("🚪 Logout", use_container_width=True):
+        proses_logout()
 
 tab1, tab2, tab3 = st.tabs(["📋 Pesanan Masuk", "🧾 Nota Manual", "📦 Kelola Stok"])
 
@@ -469,7 +529,6 @@ with tab2:
 with tab3:
     stok_list = sheet_produk.get_all_records()
 
-    # --- BAGIAN A: TAMBAH PRODUK BARU ---
     with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
         with st.form("form_tambah_produk", clear_on_submit=True):
             nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Daster Gamis Kanaya - Dusty Pink")
@@ -512,7 +571,6 @@ with tab3:
                             st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
                             st.rerun()
 
-    # --- BAGIAN B: UPDATE STOK, HARGA, ATAU GANTI FOTO PRODUK LAMA ---
     with st.expander("✏️ Update Stok / Ubah Harga Produk Lama", expanded=False):
         if not stok_list:
             st.info("Belum ada produk di database.")
@@ -568,7 +626,6 @@ with tab3:
                     st.warning(f"Produk **{nama_diedit}** telah dihapus dari katalog.")
                     st.rerun()
 
-    # --- BAGIAN C: TABEL RINGKASAN STOK ---
     st.subheader("Daftar Persediaan Saat Ini")
     if stok_list:
         tampil_stok = [
