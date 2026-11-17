@@ -7,7 +7,6 @@ import uuid
 import re
 import urllib.parse
 import requests
-import base64
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Katalog Homedress ByKamila", page_icon="🌸", layout="centered")
@@ -107,7 +106,7 @@ except Exception as e:
     st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# Ambil pengaturan QRIS & Info Rekening jika sudah diatur Admin
+# Ambil pengaturan QRIS & Info Rekening dari Google Sheets
 qris_url = str(st.secrets.get("qris_url", "")).strip()
 info_bayar = ""
 try:
@@ -119,17 +118,37 @@ try:
 except Exception:
     pass
 
-# --- 4. STATE KERANJANG & NOTA TERAKHIR ---
+qris_bytes = ambil_bytes_gambar(qris_url) if qris_url else None
+
+# --- 4. PANEL KHUSUS QRIS DI HALAMAN KATALOG (AKSES TANPA CHECKOUT) ---
+if qris_bytes or info_bayar:
+    with st.expander("💳 Lihat QRIS & Info Pembayaran Toko", expanded=False):
+        if qris_bytes:
+            c_qp1, c_qp2, c_qp3 = st.columns([1, 2, 1])
+            with c_qp2:
+                st.image(qris_bytes, caption="QRIS Homedress ByKamila", use_container_width=True)
+                st.download_button(
+                    label="📥 Simpan Gambar QRIS ke HP",
+                    data=qris_bytes,
+                    file_name="QRIS_Homedress_ByKamila.jpg",
+                    mime="image/jpeg",
+                    key="dl_qris_top",
+                    use_container_width=True
+                )
+        if info_bayar:
+            st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar}")
+
+# --- 5. STATE KERANJANG & NOTA TERAKHIR ---
 if "cart" not in st.session_state:
     st.session_state.cart = {}
 if "last_order" not in st.session_state:
     st.session_state.last_order = None
 
-# --- 5. AMBIL DATA PRODUK ---
+# --- 6. AMBIL DATA PRODUK ---
 data_produk = sheet_produk.get_all_records()
 produk_ready = [p for p in data_produk if p.get('Stok Tersedia') != '' and int(p['Stok Tersedia']) > 0]
 
-# --- 6. TAMPILKAN NOTA & QRIS PEMBAYARAN JIKA BARU SAJA CHECKOUT ---
+# --- 7. TAMPILKAN NOTA & QRIS PEMBAYARAN JIKA BARU SAJA CHECKOUT ---
 if st.session_state.last_order:
     order = st.session_state.last_order
     st.success(f"🎉 Booking Berhasil! ID Pesanan: **{order['id']}**")
@@ -220,8 +239,6 @@ if st.session_state.last_order:
     """
     components.html(nota_html, height=450, scrolling=True)
 
-    # Tampilkan QRIS Pembayaran jika sudah di-upload Admin
-    qris_bytes = ambil_bytes_gambar(qris_url) if qris_url else None
     if qris_bytes or info_bayar:
         st.markdown("""
             <div class='qris-box'>
@@ -239,6 +256,7 @@ if st.session_state.last_order:
                     data=qris_bytes,
                     file_name="QRIS_Homedress_ByKamila.jpg",
                     mime="image/jpeg",
+                    key="dl_qris_checkout",
                     use_container_width=True
                 )
         if info_bayar:
@@ -261,7 +279,7 @@ if st.session_state.last_order:
         st.rerun()
     st.divider()
 
-# --- 7. TAMPILAN GALERI KATALOG PRODUK + TOMBOL REFRESH KONTEN ---
+# --- 8. TAMPILAN GALERI KATALOG PRODUK + TOMBOL REFRESH KONTEN ---
 col_kat1, col_kat2 = st.columns([2.8, 1.4])
 with col_kat1:
     st.subheader("👗 Katalog Ready Stock")
@@ -303,7 +321,7 @@ else:
                                 st.session_state.cart[nama_brg] = qty_di_cart + 1
                                 st.rerun()
 
-# --- 8. KERANJANG BELANJA & CHECKOUT ---
+# --- 9. KERANJANG BELANJA & CHECKOUT ---
 st.divider()
 st.subheader("🛒 Keranjang & Checkout")
 
