@@ -7,6 +7,7 @@ import uuid
 import re
 import urllib.parse
 import requests
+import base64
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Katalog Homedress ByKamila", page_icon="🌸", layout="centered")
@@ -48,6 +49,15 @@ st.markdown("""
             font-family: cursive;
             font-size: 20px;
             font-weight: bold;
+        }
+        .qris-box {
+            background: #fff8fa;
+            border: 2px dashed #f48fb1;
+            border-radius: 16px;
+            padding: 16px;
+            text-align: center;
+            margin-top: 10px;
+            margin-bottom: 12px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -97,6 +107,18 @@ except Exception as e:
     st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
+# Ambil pengaturan QRIS & Info Rekening jika sudah diatur Admin
+qris_url = str(st.secrets.get("qris_url", "")).strip()
+info_bayar = ""
+try:
+    sheet_pengaturan = db.worksheet("Pengaturan")
+    cfg = {str(r["Kunci"]): str(r["Nilai"]) for r in sheet_pengaturan.get_all_records()}
+    if cfg.get("qris_url"):
+        qris_url = cfg["qris_url"].strip()
+    info_bayar = cfg.get("info_bayar", "").strip()
+except Exception:
+    pass
+
 # --- 4. STATE KERANJANG & NOTA TERAKHIR ---
 if "cart" not in st.session_state:
     st.session_state.cart = {}
@@ -107,7 +129,7 @@ if "last_order" not in st.session_state:
 data_produk = sheet_produk.get_all_records()
 produk_ready = [p for p in data_produk if p.get('Stok Tersedia') != '' and int(p['Stok Tersedia']) > 0]
 
-# --- 6. TAMPILKAN NOTA JIKA BARU SAJA CHECKOUT ---
+# --- 6. TAMPILKAN NOTA & QRIS PEMBAYARAN JIKA BARU SAJA CHECKOUT ---
 if st.session_state.last_order:
     order = st.session_state.last_order
     st.success(f"🎉 Booking Berhasil! ID Pesanan: **{order['id']}**")
@@ -179,10 +201,10 @@ if st.session_state.last_order:
                 </tbody>
             </table>
             <div class="note">
-                *Stok terkunci selama 1x24 jam. Silakan kirim nota ini ke WhatsApp Admin untuk info ongkir & pembayaran.
+                *Stok terkunci selama 1x24 jam. Silakan konfirmasi ongkir ke Admin sebelum melakukan pembayaran.
             </div>
         </div>
-        <button class="btn" onclick="simpanJPG()">📥 Simpan Gambar Nota (JPG)</button>
+        <button class="btn" onclick="simpanJPG()">📥 Simpan Gambar Nota Booking (JPG)</button>
         <script>
             function simpanJPG() {{
                 html2canvas(document.getElementById('nota-booking'), {{ scale: 2, backgroundColor: "#ffffff" }}).then(canvas => {{
@@ -196,7 +218,31 @@ if st.session_state.last_order:
     </body>
     </html>
     """
-    components.html(nota_html, height=460, scrolling=True)
+    components.html(nota_html, height=450, scrolling=True)
+
+    # Tampilkan QRIS Pembayaran jika sudah di-upload Admin
+    qris_bytes = ambil_bytes_gambar(qris_url) if qris_url else None
+    if qris_bytes or info_bayar:
+        st.markdown("""
+            <div class='qris-box'>
+                <h4 style='color:#d81b60; margin:0 0 4px 0;'>💳 Metode Pembayaran (QRIS / Transfer)</h4>
+                <p style='color:#555; font-size:12px; margin:0;'>Simpan QRIS di bawah untuk scan dari galeri m-banking / e-wallet setelah total + ongkir dikonfirmasi Admin.</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if qris_bytes:
+            c_q1, c_q2, c_q3 = st.columns([1, 2, 1])
+            with c_q2:
+                st.image(qris_bytes, caption="QRIS Homedress ByKamila", use_container_width=True)
+                st.download_button(
+                    label="📥 Simpan Gambar QRIS ke HP",
+                    data=qris_bytes,
+                    file_name="QRIS_Homedress_ByKamila.jpg",
+                    mime="image/jpeg",
+                    use_container_width=True
+                )
+        if info_bayar:
+            st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar}")
 
     daftar_teks = "\n".join([f"- {i['nama']} ({i['qty']} pcs)" for i in order['items']])
     pesan_wa = (
