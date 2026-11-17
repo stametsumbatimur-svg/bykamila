@@ -4,7 +4,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import datetime
 import json
-import urllib.parse
+import uuid
+import base64
+import requests
 
 # --- 1. SETUP HALAMAN ---
 st.set_page_config(page_title="Admin & Nota ByKamila", page_icon="🌸", layout="centered")
@@ -16,8 +18,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. KEAMANAN PIN ADMIN ---
-# PIN bawaan adalah "1234" (bisa diubah sesuai keinginan di baris bawah ini)
-PIN_ADMIN = st.secrets.get("admin_pin", "0305")
+PIN_ADMIN = st.secrets.get("admin_pin", "1234")
 
 if "admin_auth" not in st.session_state:
     st.session_state.admin_auth = False
@@ -51,7 +52,26 @@ except Exception as e:
     st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 4. FUNGSI RENDER NOTA PINK ESTETIK ---
+# --- 4. FUNGSI UPLOAD FOTO KE IMGBB ---
+def upload_foto_galeri(uploaded_file):
+    api_key = st.secrets.get("imgbb_api_key", "")
+    if not api_key:
+        return None, "API Key ImgBB belum dipasang di Secrets Streamlit."
+    try:
+        img_b64 = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
+        res = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": api_key, "image": img_b64},
+            timeout=25
+        )
+        hasil = res.json()
+        if hasil.get("success"):
+            return hasil["data"]["url"], None
+        return None, f"Gagal upload ke ImgBB: {hasil.get('error', {}).get('message', 'Error tidak diketahui')}"
+    except Exception as e:
+        return None, f"Koneksi upload gagal: {e}"
+
+# --- 5. FUNGSI RENDER NOTA PINK ESTETIK ---
 def tampilkan_nota_estetik(payload_nota):
     html_template = """
     <!DOCTYPE html>
@@ -261,7 +281,7 @@ def tampilkan_nota_estetik(payload_nota):
     final_html = html_template.replace("__DATA_JSON__", json.dumps(payload_nota))
     components.html(final_html, height=760, scrolling=True)
 
-# --- 5. HEADER & NAVIGASI ADMIN ---
+# --- 6. HEADER & NAVIGASI ADMIN ---
 col_head1, col_head2 = st.columns([4, 1])
 with col_head1:
     st.markdown("<h2 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Admin ByKamila ♡</h2>", unsafe_allow_html=True)
@@ -269,7 +289,7 @@ with col_head2:
     if st.button("🔄 Refresh"):
         st.rerun()
 
-tab1, tab2, tab3 = st.tabs(["📋 Pesanan Masuk", "🧾 Nota Manual", "📦 Cek Stok"])
+tab1, tab2, tab3 = st.tabs(["📋 Pesanan Masuk", "🧾 Nota Manual", "📦 Kelola Stok"])
 
 # ==============================================================================
 # TAB 1: VERIFIKASI & CANCEL PESANAN DARI KATALOG
@@ -342,10 +362,8 @@ with tab1:
                     if st.button("✅ Verifikasi Lunas", key=f"ok_{oid}", type="primary", use_container_width=True):
                         with st.spinner("Memproses verifikasi & mengurangi stok..."):
                             data_prod = sheet_produk.get_all_records()
-                            # 1. Update status di sheet Pesanan menjadi Lunas
                             for r_idx in order["rows"]:
                                 sheet_pesanan.update_cell(r_idx, 8, "Lunas")
-                            # 2. Kurangi Stok Total (Kolom E / 5) dan Stok Terkunci (Kolom F / 6)
                             for it in order["items"]:
                                 for p_idx, p in enumerate(data_prod, start=2):
                                     if str(p["Nama Barang"]) == it["nama"]:
@@ -369,10 +387,8 @@ with tab1:
                     if st.button("❌ Cancel Pesanan", key=f"no_{oid}", use_container_width=True):
                         with st.spinner("Membatalkan pesanan & mengembalikan stok..."):
                             data_prod = sheet_produk.get_all_records()
-                            # 1. Update status di sheet Pesanan menjadi Dibatalkan
                             for r_idx in order["rows"]:
                                 sheet_pesanan.update_cell(r_idx, 8, "Dibatalkan")
-                            # 2. Lepaskan Stok Terkunci (Kolom F / 6) agar stok katalog kembali
                             for it in order["items"]:
                                 for p_idx, p in enumerate(data_prod, start=2):
                                     if str(p["Nama Barang"]) == it["nama"]:
@@ -448,11 +464,112 @@ with tab2:
         tampilkan_nota_estetik(st.session_state.nota_manual_preview)
 
 # ==============================================================================
-# TAB 3: CEK STOK CEPAT DARI HP
+# TAB 3: KELOLA STOK, TAMBAH PRODUK & UPLOAD FOTO DARI HP
 # ==============================================================================
 with tab3:
-    st.subheader("Ringkasan Persediaan Barang")
     stok_list = sheet_produk.get_all_records()
+
+    # --- BAGIAN A: TAMBAH PRODUK BARU ---
+    with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
+        with st.form("form_tambah_produk", clear_on_submit=True):
+            nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Daster Gamis Kanaya - Dusty Pink")
+            c_t1, c_t2 = st.columns(2)
+            with c_t1:
+                harga_baru = st.number_input("Harga Satuan (Rp)", min_value=0, step=5000, value=115000)
+            with c_t2:
+                stok_baru = st.number_input("Jumlah Stok Awal (pcs)", min_value=1, step=1, value=1)
+
+            foto_file = st.file_uploader("Upload Foto dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
+            foto_link_manual = st.text_input("Atau Tempel Link Foto (Opsional jika tidak upload)")
+
+            simpan_produk = st.form_submit_button("💾 Simpan Produk ke Katalog", type="primary", use_container_width=True)
+
+            if simpan_produk:
+                if not nama_baru.strip():
+                    st.error("Nama barang wajib diisi!")
+                else:
+                    url_foto_final = foto_link_manual.strip()
+                    lanjut_simpan = True
+
+                    if foto_file is not None:
+                        with st.spinner("Mengunggah foto ke server..."):
+                            url_uploaded, err_msg = upload_foto_galeri(foto_file)
+                            if err_msg:
+                                st.error(err_msg)
+                                lanjut_simpan = False
+                            else:
+                                url_foto_final = url_uploaded
+
+                    if lanjut_simpan:
+                        with st.spinner("Menyimpan ke database..."):
+                            id_prd = "PRD-" + str(uuid.uuid4())[:4].upper()
+                            baris_baru = len(sheet_produk.get_all_values()) + 1
+                            rumus_tersedia = f"=E{baris_baru}-F{baris_baru}"
+                            sheet_produk.append_row(
+                                [id_prd, nama_baru.strip(), int(harga_baru), url_foto_final, int(stok_baru), 0, rumus_tersedia],
+                                value_input_option="USER_ENTERED"
+                            )
+                            st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
+                            st.rerun()
+
+    # --- BAGIAN B: UPDATE STOK, HARGA, ATAU GANTI FOTO PRODUK LAMA ---
+    with st.expander("✏️ Update Stok / Ubah Harga Produk Lama", expanded=False):
+        if not stok_list:
+            st.info("Belum ada produk di database.")
+        else:
+            pilihan_edit = [str(p["Nama Barang"]) for p in stok_list]
+            nama_diedit = st.selectbox("Pilih Produk yang Ingin Diubah", pilihan_edit, key="edit_pilih_prd")
+            idx_edit = pilihan_edit.index(nama_diedit)
+            data_lama = stok_list[idx_edit]
+            baris_sheet_edit = idx_edit + 2
+
+            st.caption(
+                f"Info saat ini — Terkunci: **{data_lama.get('Stok Terkunci', 0)} pcs** | "
+                f"Tersedia di Katalog: **{data_lama.get('Stok Tersedia', 0)} pcs**"
+            )
+
+            with st.form("form_edit_produk"):
+                c_e1, c_e2 = st.columns(2)
+                with c_e1:
+                    harga_edit = st.number_input("Harga Satuan (Rp)", min_value=0, step=5000, value=int(data_lama.get("Harga", 0)))
+                with c_e2:
+                    stok_tot_edit = st.number_input("Stok Total (pcs)", min_value=0, step=1, value=int(data_lama.get("Stok Total", 0)))
+
+                foto_ganti = st.file_uploader("Ganti Foto Baru (Biarkan kosong jika tidak diganti)", type=["jpg", "jpeg", "png", "webp"], key="ganti_foto")
+
+                c_btn_e1, c_btn_e2 = st.columns(2)
+                with c_btn_e1:
+                    btn_simpan_edit = st.form_submit_button("💾 Simpan Perubahan", type="primary", use_container_width=True)
+                with c_btn_e2:
+                    btn_hapus_prd = st.form_submit_button("🗑️ Hapus Produk", use_container_width=True)
+
+                if btn_simpan_edit:
+                    url_foto_baru = str(data_lama.get("Foto URL", ""))
+                    ok_update = True
+                    if foto_ganti is not None:
+                        with st.spinner("Mengunggah foto baru..."):
+                            url_up, err_up = upload_foto_galeri(foto_ganti)
+                            if err_up:
+                                st.error(err_up)
+                                ok_update = False
+                            else:
+                                url_foto_baru = url_up
+
+                    if ok_update:
+                        with st.spinner("Memperbarui data produk..."):
+                            sheet_produk.update_cell(baris_sheet_edit, 3, int(harga_edit))
+                            sheet_produk.update_cell(baris_sheet_edit, 4, url_foto_baru)
+                            sheet_produk.update_cell(baris_sheet_edit, 5, int(stok_tot_edit))
+                            st.success(f"✅ Data **{nama_diedit}** berhasil diperbarui!")
+                            st.rerun()
+
+                if btn_hapus_prd:
+                    sheet_produk.delete_rows(baris_sheet_edit)
+                    st.warning(f"Produk **{nama_diedit}** telah dihapus dari katalog.")
+                    st.rerun()
+
+    # --- BAGIAN C: TABEL RINGKASAN STOK ---
+    st.subheader("Daftar Persediaan Saat Ini")
     if stok_list:
         tampil_stok = [
             {
