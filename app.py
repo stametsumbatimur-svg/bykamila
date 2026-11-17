@@ -18,7 +18,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. KEAMANAN PIN ADMIN ---
-PIN_ADMIN = st.secrets.get("admin_pin", "1234")
+PIN_ADMIN = st.secrets.get("admin_pin", "0305")
 
 if "admin_auth" not in st.session_state:
     st.session_state.admin_auth = False
