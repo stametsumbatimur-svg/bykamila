@@ -279,7 +279,7 @@ def upload_foto_galeri(uploaded_file):
     except Exception as e:
         return None, f"Koneksi upload gagal: {e}"
 
-# --- 7. FUNGSI RENDER NOTA PINK ESTETIK (HARGA SATUAN + SUBTOTAL TERHITUNG) ---
+# --- 7. FUNGSI RENDER NOTA PINK ESTETIK (PROPORSI TERKUNCI UNTUK SEMUA LAYAR) ---
 def tampilkan_nota_estetik(payload_nota):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
@@ -303,6 +303,9 @@ def tampilkan_nota_estetik(payload_nota):
     data_for_js["sig_code"] = sig_code
     data_for_js["verify_url"] = verify_url
 
+    extra_rows = max(0, len(payload_nota["items"]) - 3)
+    iframe_height = 790 + (extra_rows * 38)
+
     html_template = """
     <!DOCTYPE html>
     <html lang="id">
@@ -319,13 +322,28 @@ def tampilkan_nota_estetik(payload_nota):
                 --text-dark: #4a4a4a;
             }
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Quicksand', sans-serif; }
-            body { background: transparent; padding: 5px; }
+            body { background: transparent; padding: 4px; }
+
+            /* Pembungkus agar nota otomatis pas di layar HP kecil maupun PC */
+            #nota-viewport {
+                width: 100%;
+                display: flex;
+                justify-content: center;
+                overflow: hidden;
+            }
+            #nota-scaler {
+                width: 440px;
+                transform-origin: top center;
+            }
+
+            /* Lebar nota dikunci 440px agar tatanan tidak pernah berantakan */
             .nota-box {
                 background: white;
-                width: 100%;
-                max-width: 450px;
+                width: 440px;
+                min-width: 440px;
+                max-width: 440px;
                 margin: 0 auto;
-                padding: 25px 20px;
+                padding: 24px 20px;
                 color: var(--pink-main);
                 position: relative;
                 border-radius: 16px;
@@ -344,7 +362,7 @@ def tampilkan_nota_estetik(payload_nota):
                 top: 46%;
                 left: 50%;
                 transform: translate(-50%, -50%) rotate(-24deg);
-                font-size: 28px;
+                font-size: 26px;
                 font-weight: 700;
                 color: rgba(216, 27, 96, 0.06);
                 white-space: nowrap;
@@ -354,31 +372,58 @@ def tampilkan_nota_estetik(payload_nota):
             }
             .content-layer { position: relative; z-index: 1; }
             .header-nota { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-            .brand h1 { font-family: 'Dancing Script', cursive; font-size: 42px; line-height: 0.9; }
-            .brand p { font-family: 'Dancing Script', cursive; font-size: 22px; text-align: center; }
-            .contact { font-size: 13px; font-weight: 700; text-align: right; color: var(--pink-main); }
+            .brand h1 { font-family: 'Dancing Script', cursive; font-size: 42px; line-height: 0.9; white-space: nowrap; }
+            .brand p { font-family: 'Dancing Script', cursive; font-size: 22px; text-align: center; white-space: nowrap; }
+            .contact { font-size: 13px; font-weight: 700; text-align: right; color: var(--pink-main); white-space: nowrap; }
             .contact p { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 4px; }
-            .thanks-top { font-family: 'Dancing Script', cursive; font-size: 20px; text-align: center; margin-top: 8px; }
+            .thanks-top { font-family: 'Dancing Script', cursive; font-size: 20px; text-align: center; margin-top: 8px; line-height: 1.15; }
             .info-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
             .info-box {
                 border: 1.5px solid var(--pink-border);
                 border-radius: 25px;
-                padding: 8px 15px;
+                padding: 8px 14px;
                 font-size: 12px;
                 font-weight: 700;
                 text-align: center;
                 flex: 1;
-                background: rgba(255,255,255,0.85);
+                background: rgba(255,255,255,0.9);
+                overflow: hidden;
             }
-            .info-box span { display: block; color: var(--text-dark); font-size: 14px; margin-top: 3px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 14px; text-align: center; background: rgba(255,255,255,0.85); }
-            table th, table td { border: 1.5px solid var(--pink-border); padding: 8px 6px; font-weight: 600; }
-            table th { background-color: var(--pink-light); font-size: 13px; color: var(--pink-main); }
+            .info-box span {
+                display: block;
+                color: var(--text-dark);
+                font-size: 14px;
+                margin-top: 3px;
+                word-break: break-word;
+            }
+            table {
+                width: 400px;
+                table-layout: fixed;
+                border-collapse: collapse;
+                margin-bottom: 14px;
+                text-align: center;
+                background: rgba(255,255,255,0.9);
+            }
+            table th, table td {
+                border: 1.5px solid var(--pink-border);
+                padding: 8px 6px;
+                font-weight: 600;
+            }
+            table th {
+                background-color: var(--pink-light);
+                font-size: 13px;
+                color: var(--pink-main);
+                white-space: nowrap;
+            }
             table td { color: var(--text-dark); font-size: 13px; }
-            .align-right { text-align: right; }
+            .col-no { width: 36px; white-space: nowrap; }
+            .col-nama { width: 174px; text-align: left; word-break: break-word; }
+            .col-jml { width: 76px; white-space: nowrap; }
+            .col-hrg { width: 114px; text-align: right; white-space: nowrap; }
+            .align-right { text-align: right; white-space: nowrap; }
             .align-left { text-align: left; }
             .grand-total { font-family: 'Dancing Script', cursive; font-size: 28px; color: var(--pink-main); background-color: var(--pink-light); }
-            .grand-total-val { font-size: 20px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; }
+            .grand-total-val { font-size: 19px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; white-space: nowrap; }
             .footer-area {
                 display: flex;
                 align-items: center;
@@ -400,8 +445,12 @@ def tampilkan_nota_estetik(payload_nota):
                 border: 1px solid #a5d6a7;
                 padding: 2px 8px;
                 border-radius: 10px;
+                white-space: nowrap;
             }
             #qrcode-box {
+                width: 76px;
+                height: 76px;
+                flex-shrink: 0;
                 background: white;
                 padding: 5px;
                 border-radius: 8px;
@@ -411,90 +460,94 @@ def tampilkan_nota_estetik(payload_nota):
                 justify-content: center;
             }
             .btn-dl {
-                display: block; width: 100%; max-width: 450px; margin: 14px auto 0;
+                display: block; width: 100%; max-width: 440px; margin: 14px auto 0;
                 background-color: #2e7d32; color: white; border: none; padding: 13px;
                 border-radius: 12px; font-weight: 700; font-size: 15px; cursor: pointer;
             }
             .btn-dl:active { transform: scale(0.98); }
             #jpg-preview-area {
-                display: none; max-width: 450px; margin: 12px auto 0; text-align: center;
+                display: none; max-width: 440px; margin: 12px auto 0; text-align: center;
                 background: #fff8fa; border: 2px dashed var(--pink-border); border-radius: 12px; padding: 10px;
             }
             #jpg-preview-area img { width: 100%; border-radius: 8px; margin-top: 6px; }
         </style>
     </head>
     <body>
-        <div class="nota-box" id="nota-area">
-            <div class="watermark" id="wm-text">LUNAS • BYKAMILA</div>
-            <div class="content-layer">
-                <div class="header-nota">
-                    <div class="brand">
-                        <h1>homedress</h1>
-                        <p>♡ bykamila ♡</p>
-                    </div>
-                    <div>
-                        <div class="contact">
-                            <p>
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                                    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                                    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                                </svg>
-                                bykamila__
-                            </p>
-                            <p>
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                                </svg>
-                                0895-2608-7445
-                            </p>
+        <div id="nota-viewport">
+            <div id="nota-scaler">
+                <div class="nota-box" id="nota-area">
+                    <div class="watermark" id="wm-text">LUNAS • BYKAMILA</div>
+                    <div class="content-layer">
+                        <div class="header-nota">
+                            <div class="brand">
+                                <h1>homedress</h1>
+                                <p>♡ bykamila ♡</p>
+                            </div>
+                            <div>
+                                <div class="contact">
+                                    <p>
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                                            <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                                            <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                                        </svg>
+                                        bykamila__
+                                    </p>
+                                    <p>
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                                        </svg>
+                                        0895-2608-7445
+                                    </p>
+                                </div>
+                                <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
+                            </div>
                         </div>
-                        <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
+
+                        <div class="info-row">
+                            <div class="info-box">Nama Customer<span id="out-nama"></span></div>
+                            <div class="info-box">Tanggal Order<span id="out-tanggal"></span></div>
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="col-no">No</th>
+                                    <th style="width:174px;">Nama Barang</th>
+                                    <th class="col-jml">Jumlah</th>
+                                    <th style="width:114px;">Harga</th>
+                                </tr>
+                            </thead>
+                            <tbody id="out-items"></tbody>
+                            <tbody>
+                                <tr>
+                                    <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
+                                    <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal"></td>
+                                </tr>
+                                <tr id="row-diskon" style="display: none;">
+                                    <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
+                                    <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);"></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="3" class="align-left">Ongkir</td>
+                                    <td class="align-right" id="out-ongkir"></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="3" class="grand-total align-left">Total</td>
+                                    <td class="grand-total-val align-right" id="out-total"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <div class="footer-area">
+                            <div class="footer-text">
+                                <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
+                                <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
+                                <span class="auth-badge" id="out-auth">✔ LUNAS • AUTH: </span>
+                            </div>
+                            <div id="qrcode-box"></div>
+                        </div>
                     </div>
-                </div>
-
-                <div class="info-row">
-                    <div class="info-box">Nama Customer<span id="out-nama"></span></div>
-                    <div class="info-box">Tanggal Order<span id="out-tanggal"></span></div>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th width="10%">No</th>
-                            <th width="45%">Nama Barang</th>
-                            <th width="20%">Jumlah</th>
-                            <th width="25%">Harga</th>
-                        </tr>
-                    </thead>
-                    <tbody id="out-items"></tbody>
-                    <tbody>
-                        <tr>
-                            <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
-                            <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal"></td>
-                        </tr>
-                        <tr id="row-diskon" style="display: none;">
-                            <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
-                            <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);"></td>
-                        </tr>
-                        <tr>
-                            <td colspan="3" class="align-left">Ongkir</td>
-                            <td class="align-right" id="out-ongkir"></td>
-                        </tr>
-                        <tr>
-                            <td colspan="3" class="grand-total align-left">Total</td>
-                            <td class="grand-total-val align-right" id="out-total"></td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <div class="footer-area">
-                    <div class="footer-text">
-                        <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
-                        <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
-                        <span class="auth-badge" id="out-auth">✔ LUNAS • AUTH: </span>
-                    </div>
-                    <div id="qrcode-box"></div>
                 </div>
             </div>
         </div>
@@ -525,13 +578,13 @@ def tampilkan_nota_estetik(payload_nota):
                     subtotal += lineTotal;
                     rowsHTML += `
                         <tr>
-                            <td>${i + 1}</td>
-                            <td class="align-left">${it.nama}</td>
-                            <td>${it.qty} pcs</td>
-                            <td class="align-right">Rp ${formatRp(it.harga)}</td>
+                            <td class="col-no">${i + 1}</td>
+                            <td class="col-nama">${it.nama}</td>
+                            <td class="col-jml">${it.qty} pcs</td>
+                            <td class="col-hrg">Rp ${formatRp(it.harga)}</td>
                         </tr>`;
                 } else {
-                    rowsHTML += `<tr><td>&nbsp;</td><td></td><td></td><td></td></tr>`;
+                    rowsHTML += `<tr><td class="col-no">&nbsp;</td><td class="col-nama"></td><td class="col-jml"></td><td class="col-hrg"></td></tr>`;
                 }
             }
             document.getElementById('out-items').innerHTML = rowsHTML;
@@ -555,8 +608,39 @@ def tampilkan_nota_estetik(payload_nota):
                 correctLevel: QRCode.CorrectLevel.M
             });
 
+            function fitNotaToScreen() {
+                const vp = document.getElementById('nota-viewport');
+                const scaler = document.getElementById('nota-scaler');
+                const box = document.getElementById('nota-area');
+                scaler.style.transform = 'none';
+                const availWidth = vp.clientWidth;
+                if (availWidth > 0 && availWidth < 440) {
+                    const ratio = availWidth / 440;
+                    scaler.style.transform = `scale(${ratio})`;
+                    vp.style.height = (box.offsetHeight * ratio + 8) + 'px';
+                } else {
+                    scaler.style.transform = 'none';
+                    vp.style.height = 'auto';
+                }
+            }
+
+            window.addEventListener('load', fitNotaToScreen);
+            window.addEventListener('resize', fitNotaToScreen);
+            setTimeout(fitNotaToScreen, 150);
+
             function downloadNotaJPG() {
-                html2canvas(document.getElementById('nota-area'), { scale: 2, backgroundColor: "#ffffff" }).then(canvas => {
+                const scaler = document.getElementById('nota-scaler');
+                const prevTransform = scaler.style.transform;
+                scaler.style.transform = 'none';
+
+                html2canvas(document.getElementById('nota-area'), {
+                    scale: 2,
+                    width: 440,
+                    backgroundColor: "#ffffff"
+                }).then(canvas => {
+                    scaler.style.transform = prevTransform;
+                    fitNotaToScreen();
+
                     const url = canvas.toDataURL('image/jpeg', 0.95);
                     document.getElementById('img-hasil').src = url;
                     document.getElementById('jpg-preview-area').style.display = 'block';
@@ -565,6 +649,9 @@ def tampilkan_nota_estetik(payload_nota):
                     a.download = `Nota_Lunas_${data.nama}.jpg`;
                     a.href = url;
                     a.click();
+                }).catch(() => {
+                    scaler.style.transform = prevTransform;
+                    fitNotaToScreen();
                 });
             }
         </script>
@@ -572,7 +659,7 @@ def tampilkan_nota_estetik(payload_nota):
     </html>
     """
     final_html = html_template.replace("__DATA_JSON__", json.dumps(data_for_js))
-    components.html(final_html, height=780, scrolling=True)
+    components.html(final_html, height=iframe_height, scrolling=True)
 
 # --- 8. HEADER & TOMBOL REFRESH / LOGOUT ---
 col_head1, col_head2, col_head3 = st.columns([3.2, 1.1, 1.1])
@@ -707,7 +794,7 @@ with tab1:
                             st.rerun()
 
 # ==============================================================================
-# TAB 2: BUAT NOTA MANUAL (JIKA ORDER LANGSUNG VIA CHAT WA)
+# TAB 2: BUAT NOTA MANUAL (DENGAN TOMBOL HAPUS PER BARIS & RESET)
 # ==============================================================================
 with tab2:
     st.subheader("Buat Nota Manual")
@@ -719,33 +806,56 @@ with tab2:
     with c_m2:
         m_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="m_tgl")
 
-    if "manual_rows" not in st.session_state:
-        st.session_state.manual_rows = 1
+    # Menggunakan ID unik per baris agar hapus baris di tengah tidak menggeser pilihan barang lain
+    if "manual_row_ids" not in st.session_state or not st.session_state.manual_row_ids:
+        st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
 
     items_manual = []
-    for i in range(st.session_state.manual_rows):
-        st.markdown(f"**Barang #{i+1}**")
+    jumlah_baris_aktif = len(st.session_state.manual_row_ids)
+
+    for idx_baris, rid in enumerate(list(st.session_state.manual_row_ids)):
+        c_lbl, c_del = st.columns([3.5, 1])
+        with c_lbl:
+            st.markdown(f"**Barang #{idx_baris + 1}**")
+        with c_del:
+            if jumlah_baris_aktif > 1:
+                if st.button("🗑️ Hapus", key=f"del_row_{rid}", use_container_width=True):
+                    st.session_state.manual_row_ids.remove(rid)
+                    for prefix in ("sel_m_", "txt_m_", "qty_m_", "hrg_m_"):
+                        st.session_state.pop(f"{prefix}{rid}", None)
+                    st.rerun()
+
         col_p, col_j, col_h = st.columns([2.2, 0.9, 1.3])
         with col_p:
-            pilih = st.selectbox("Pilih Katalog", daftar_nama_prod, key=f"sel_m_{i}", label_visibility="collapsed")
+            pilih = st.selectbox("Pilih Katalog", daftar_nama_prod, key=f"sel_m_{rid}", label_visibility="collapsed")
             if pilih == "-- Ketik Manual --":
-                nama_item_m = st.text_input("Nama Barang", placeholder="Ketik nama barang...", key=f"txt_m_{i}", label_visibility="collapsed")
+                nama_item_m = st.text_input("Nama Barang", placeholder="Ketik nama barang...", key=f"txt_m_{rid}", label_visibility="collapsed")
                 harga_default = 0
             else:
                 nama_item_m = pilih
                 cocok = next((p for p in data_produk_admin if str(p["Nama Barang"]) == pilih), None)
                 harga_default = int(cocok["Harga"]) if cocok else 0
         with col_j:
-            qty_m = st.number_input("Jml", min_value=1, value=1, key=f"qty_m_{i}")
+            qty_m = st.number_input("Jml", min_value=1, value=1, key=f"qty_m_{rid}")
         with col_h:
-            harga_m = st.number_input("Harga Satuan", min_value=0, value=harga_default, step=1000, key=f"hrg_m_{i}")
+            harga_m = st.number_input("Harga Satuan", min_value=0, value=harga_default, step=1000, key=f"hrg_m_{rid}")
 
         if nama_item_m.strip() and harga_m > 0:
             items_manual.append({"nama": nama_item_m.strip(), "qty": int(qty_m), "harga": int(harga_m)})
 
-    if st.button("+ Tambah Baris Barang"):
-        st.session_state.manual_rows += 1
-        st.rerun()
+    c_add_btn, c_rst_btn = st.columns([2.5, 1.2])
+    with c_add_btn:
+        if st.button("+ Tambah Baris Barang", use_container_width=True):
+            st.session_state.manual_row_ids.append(str(uuid.uuid4())[:6])
+            st.rerun()
+    with c_rst_btn:
+        if st.button("🧹 Reset Semua", use_container_width=True):
+            for rid in st.session_state.manual_row_ids:
+                for prefix in ("sel_m_", "txt_m_", "qty_m_", "hrg_m_"):
+                    st.session_state.pop(f"{prefix}{rid}", None)
+            st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
+            st.session_state.nota_manual_preview = None
+            st.rerun()
 
     col_mo, col_md = st.columns(2)
     with col_mo:
