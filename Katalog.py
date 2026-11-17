@@ -170,7 +170,7 @@ if st.session_state.last_order:
             <td>{idx}</td>
             <td style="text-align:left;">{item['nama']}</td>
             <td>{item['qty']} pcs</td>
-            <td style="text-align:right;">Rp {item['subtotal']:,.0f}</td>
+            <td style="text-align:right;">Rp {item['harga']:,.0f}</td>
         </tr>
         """.replace(",", ".")
 
@@ -224,7 +224,7 @@ if st.session_state.last_order:
                 <tbody>
                     {items_rows}
                     <tr class="total-row">
-                        <td colspan="3" style="text-align:left;">Total Barang</td>
+                        <td colspan="3" style="text-align:left;">Subtotal</td>
                         <td style="text-align:right;">{total_fmt}</td>
                     </tr>
                 </tbody>
@@ -278,7 +278,7 @@ if st.session_state.last_order:
         f"*ID Order:* {order['id']}\n"
         f"*Nama:* {order['nama']}\n"
         f"*Pesanan:*\n{daftar_teks}\n"
-        f"*Total Barang:* {total_fmt}\n\n"
+        f"*Subtotal Barang:* {total_fmt}\n\n"
         f"Mohon info ongkir dan total pembayarannya ya kak 🙏"
     )
     wa_url = f"https://wa.me/6289526087445?text={urllib.parse.quote(pesan_wa)}"
