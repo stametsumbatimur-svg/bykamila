@@ -249,7 +249,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
             }
             .nota-box.bg-polkadot {
                 background-color: #fff9fb;
-                background-image: radial-gradient(rgba(244, 143, 177, 0.25) 1.5px, transparent 1.5px);
+                background-image: radial-gradient(rgba(244, 143, 177, 0.28) 1.5px, transparent 1.5px);
                 background-size: 16px 16px;
             }
             .nota-box.bg-clean {
@@ -270,14 +270,14 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 position: relative;
                 overflow: hidden;
             }
-            /* Watermark Logo Tengah */
+            /* Watermark Logo Tengah (Diperjelas) */
             .wm-logo-center {
                 position: absolute;
-                top: 53%;
+                top: 52%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                width: 235px;
-                opacity: 0.09;
+                width: 245px;
+                opacity: 0.17;
                 pointer-events: none;
                 z-index: 0;
             }
@@ -286,13 +286,13 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 height: auto;
                 display: block;
             }
-            /* Watermark Teks Diagonal Berulang */
+            /* Watermark Teks Diagonal Berulang dengan ID Nota (Diperjelas) */
             .wm-text-wrap {
                 position: absolute;
-                top: 22%;
+                top: 18%;
                 left: -15%;
                 right: -15%;
-                bottom: 12%;
+                bottom: 10%;
                 display: flex;
                 flex-direction: column;
                 justify-content: space-around;
@@ -302,11 +302,11 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 z-index: 0;
             }
             .wm-line {
-                font-size: 18px;
+                font-size: 17px;
                 font-weight: 700;
-                color: rgba(216, 27, 96, 0.075);
+                color: rgba(216, 27, 96, 0.16);
                 white-space: nowrap;
-                letter-spacing: 3px;
+                letter-spacing: 2.5px;
             }
             .content-layer { position: relative; z-index: 1; }
             .header-nota {
@@ -338,9 +338,9 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
             }
             .contact { font-size: 13px; font-weight: 700; text-align: right; color: var(--pink-main); white-space: nowrap; }
             .contact p { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 4px; }
-            .thanks-top {
+            .tagline-top {
                 font-family: 'Dancing Script', cursive;
-                font-size: 22px;
+                font-size: 21px;
                 text-align: right;
                 margin-top: 8px;
                 line-height: 1.15;
@@ -355,7 +355,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 font-weight: 700;
                 text-align: center;
                 flex: 1;
-                background: rgba(255, 255, 255, 0.78);
+                background: rgba(255, 255, 255, 0.58);
                 overflow: hidden;
             }
             .info-box span {
@@ -371,7 +371,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 border-collapse: collapse;
                 margin-bottom: 14px;
                 text-align: center;
-                background: rgba(255, 255, 255, 0.72);
+                background: rgba(255, 255, 255, 0.48);
             }
             table th, table td {
                 border: 1.5px solid var(--pink-border);
@@ -380,7 +380,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 vertical-align: middle;
             }
             table th {
-                background-color: rgba(252, 228, 236, 0.9);
+                background-color: rgba(252, 228, 236, 0.85);
                 font-size: 11.5px;
                 color: var(--pink-main);
                 white-space: nowrap;
@@ -396,13 +396,13 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 font-family: 'Dancing Script', cursive;
                 font-size: 26px;
                 color: var(--pink-main);
-                background-color: rgba(252, 228, 236, 0.9);
+                background-color: rgba(252, 228, 236, 0.85);
                 padding: 6px 8px;
             }
             .grand-total-val {
                 font-size: 14.5px;
                 color: var(--pink-main);
-                background-color: rgba(252, 228, 236, 0.9);
+                background-color: rgba(252, 228, 236, 0.85);
                 font-weight: 700;
                 white-space: nowrap;
                 padding: 8px 6px;
@@ -418,16 +418,17 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 margin-top: 8px;
             }
             .footer-text { text-align: left; flex: 1; }
-            .auth-badge {
+            .lunas-badge {
                 display: inline-block;
-                margin-top: 5px;
-                font-size: 10px;
+                margin-top: 6px;
+                font-size: 11px;
                 font-weight: 700;
                 color: #2e7d32;
                 background: #e8f5e9;
-                border: 1px solid #a5d6a7;
-                padding: 2px 8px;
-                border-radius: 10px;
+                border: 1.5px solid #81c784;
+                padding: 3px 12px;
+                border-radius: 12px;
+                letter-spacing: 0.6px;
                 white-space: nowrap;
             }
             #qrcode-box {
@@ -483,7 +484,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                                             0895-2608-7445
                                         </p>
                                     </div>
-                                    <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
+                                    <div class="tagline-top">Nyaman &amp; Cantik<br>di Rumah ♡</div>
                                 </div>
                             </div>
 
@@ -504,8 +505,8 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                                 <tbody id="out-items"></tbody>
                                 <tbody>
                                     <tr>
-                                        <td colspan="3" class="align-left" style="background-color: rgba(252, 228, 236, 0.9);">Subtotal</td>
-                                        <td class="align-right" style="background-color: rgba(252, 228, 236, 0.9);" id="out-subtotal"></td>
+                                        <td colspan="3" class="align-left" style="background-color: rgba(252, 228, 236, 0.85);">Subtotal</td>
+                                        <td class="align-right" style="background-color: rgba(252, 228, 236, 0.85);" id="out-subtotal"></td>
                                     </tr>
                                     <tr id="row-diskon" style="display: none;">
                                         <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
@@ -526,7 +527,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                                 <div class="footer-text">
                                     <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
                                     <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
-                                    <span class="auth-badge" id="out-auth">✔ LUNAS • AUTH: </span>
+                                    <span class="lunas-badge">✔ LUNAS</span>
                                 </div>
                                 <div id="qrcode-box"></div>
                             </div>
@@ -551,11 +552,9 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;');
 
-            // Terapkan gaya background
             const notaEl = document.getElementById('nota-area');
             notaEl.classList.add('bg-' + (data.bg_style || 'pastel'));
 
-            // Ubah latar putih logo menjadi transparan agar menyatu dengan background & watermark
             function makeLogoTransparent(dataUri, callback) {
                 if (!dataUri) { callback(''); return; }
                 const img = new Image();
@@ -597,10 +596,11 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 brandContainer.innerHTML = `<div class="brand"><h1>homedress</h1><p>♡ bykamila ♡</p></div>`;
             }
 
-            // Isi watermark teks diagonal berulang
+            // Watermark teks diagonal tetap memuat ID Nota
             const wmWrap = document.getElementById('wm-text-wrap');
             const wmString = `LUNAS • ${data.order_id} • BYKAMILA • `;
             wmWrap.innerHTML = `
+                <div class="wm-line">${wmString.repeat(2)}</div>
                 <div class="wm-line">${wmString.repeat(2)}</div>
                 <div class="wm-line">${wmString.repeat(2)}</div>
                 <div class="wm-line">${wmString.repeat(2)}</div>
@@ -608,7 +608,6 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
 
             document.getElementById('out-nama').innerText = data.nama;
             document.getElementById('out-tanggal').innerText = data.tanggal;
-            document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
 
             new QRCode(document.getElementById("qrcode-box"), {
                 text: data.verify_url,
