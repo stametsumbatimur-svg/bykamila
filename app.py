@@ -5,26 +5,16 @@ from google.oauth2.service_account import Credentials
 import datetime
 import json
 import uuid
-import base64
 import requests
 import hashlib
-import time
 import urllib.parse
 
 # --- 1. SETUP HALAMAN ---
-st.set_page_config(page_title="Admin & Nota ByKamila", page_icon="🌸", layout="centered")
+st.set_page_config(page_title="Generator Nota ByKamila", page_icon="🧾", layout="centered")
 
 st.markdown("""
     <style>
         .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
-        .login-card {
-            background: #fff8fa;
-            border: 1.5px solid #f48fb1;
-            border-radius: 16px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 15px;
-        }
         .verify-valid {
             background: #e8f5e9;
             border: 2px solid #2e7d32;
@@ -42,10 +32,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. KUNCI KEAMANAN & FUNGSI TANDA TANGAN DIGITAL ---
-PIN_ADMIN = str(st.secrets.get("admin_pin", "0305")).strip()
+# --- 2. KUNCI TANDA TANGAN DIGITAL NOTA ---
 SALT_KEY = str(st.secrets.get("gcp_service_account", {}).get("private_key_id", "bykamila_secret"))
-SESSION_TOKEN = hashlib.sha256(f"{PIN_ADMIN}:{SALT_KEY}".encode()).hexdigest()[:24]
 
 def buat_signature_nota(order_id, nama, total_akhir):
     raw = f"{order_id.strip()}|{nama.strip().lower()}|{int(total_akhir)}|{SALT_KEY}"
@@ -63,7 +51,7 @@ def ambil_bytes_gambar(url):
         pass
     return None
 
-# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS ---
+# --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
 @st.cache_resource
 def get_google_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -72,48 +60,25 @@ def get_google_sheet():
     return client.open("Database_ByKamila")
 
 @st.cache_data(ttl=45, show_spinner=False)
-def load_admin_data():
+def load_nota_data():
     db = get_google_sheet()
-    ws_produk = db.worksheet("Produk")
-    ws_pesanan = db.worksheet("Pesanan")
+    data_produk = []
+    try:
+        ws_produk = db.worksheet("Produk")
+        data_produk = ws_produk.get_all_records()
+    except Exception:
+        pass
 
-    header_produk = ws_produk.row_values(1)
-    if len(header_produk) < 8 or str(header_produk[7]).strip() != "Keterangan":
-        ws_produk.update_cell(1, 8, "Keterangan")
-
-    data_produk = ws_produk.get_all_records()
-    data_pesanan = ws_pesanan.get_all_records()
-
+    cfg_toko = {}
     try:
         ws_cfg = db.worksheet("Pengaturan")
-    except gspread.WorksheetNotFound:
-        ws_cfg = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
-        ws_cfg.append_row(["Kunci", "Nilai"])
-        ws_cfg.append_row(["qris_url", ""])
-        ws_cfg.append_row(["info_bayar", ""])
-        ws_cfg.append_row(["admin_url", ""])
-    cfg_toko = {str(r["Kunci"]): str(r["Nilai"]) for r in ws_cfg.get_all_records()}
+        cfg_toko = {str(r["Kunci"]): str(r["Nilai"]) for r in ws_cfg.get_all_records()}
+    except Exception:
+        pass
 
-    return data_produk, data_pesanan, cfg_toko
+    return data_produk, cfg_toko
 
-def simpan_pengaturan(kunci, nilai):
-    db = get_google_sheet()
-    ws_cfg = db.worksheet("Pengaturan")
-    all_vals = ws_cfg.get_all_values()
-    for idx, row in enumerate(all_vals, start=1):
-        if len(row) > 0 and str(row[0]).strip() == kunci:
-            if nilai == "":
-                try:
-                    ws_cfg.batch_clear([f"B{idx}"])
-                except Exception:
-                    ws_cfg.update_cell(idx, 2, "")
-            else:
-                ws_cfg.update_cell(idx, 2, nilai)
-            return
-    if nilai != "":
-        ws_cfg.append_row([kunci, nilai])
-
-# --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA LUNAS DI-SCAN ---
+# --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA DI-SCAN ---
 if "cek" in st.query_params:
     cek_id = str(st.query_params.get("cek", "")).strip()
     cek_sig = str(st.query_params.get("sig", "")).strip().upper()
@@ -127,7 +92,8 @@ if "cek" in st.query_params:
 
     if cek_id.startswith("ORD-"):
         try:
-            _, semua_order, _ = load_admin_data()
+            db = get_google_sheet()
+            semua_order = db.worksheet("Pesanan").get_all_records()
         except Exception as e:
             st.error(f"Gagal membaca database: {e}")
             st.stop()
@@ -188,100 +154,21 @@ if "cek" in st.query_params:
 
     st.stop()
 
-# --- 5. SISTEM LOGIN, LOGOUT & KEAMANAN PIN ADMIN ---
-if "admin_auth" not in st.session_state:
-    st.session_state.admin_auth = False
-if "login_attempts" not in st.session_state:
-    st.session_state.login_attempts = 0
-if "lockout_until" not in st.session_state:
-    st.session_state.lockout_until = 0.0
-
-if not st.session_state.admin_auth:
-    if st.query_params.get("token") == SESSION_TOKEN:
-        st.session_state.admin_auth = True
-
-if not st.session_state.admin_auth:
-    st.markdown("""
-        <div class='login-card'>
-            <h2 style='color: #d81b60; font-family: cursive; margin-bottom: 4px;'>♡ Admin ByKamila ♡</h2>
-            <p style='color: #666; font-size: 13px; margin: 0;'>Silakan masukkan PIN untuk mengelola pesanan & stok</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    sisa_kunci = int(st.session_state.lockout_until - time.time())
-    if sisa_kunci > 0:
-        st.error(f"Terlalu banyak percobaan salah. Coba lagi dalam {sisa_kunci} detik.")
-        st.stop()
-
-    with st.form("form_login_admin"):
-        pin_input = st.text_input("PIN Admin", type="password", placeholder="Masukkan PIN...")
-        ingat_saya = st.checkbox("Ingat saya di HP ini (tidak perlu ketik PIN tiap buka)", value=True)
-        btn_masuk = st.form_submit_button("🔓 Masuk ke Halaman Admin", type="primary", use_container_width=True)
-
-        if btn_masuk:
-            if pin_input.strip() == PIN_ADMIN:
-                st.session_state.admin_auth = True
-                st.session_state.login_attempts = 0
-                if ingat_saya:
-                    st.query_params["token"] = SESSION_TOKEN
-                else:
-                    if "token" in st.query_params:
-                        del st.query_params["token"]
-                st.rerun()
-            else:
-                st.session_state.login_attempts += 1
-                sisa_coba = 5 - st.session_state.login_attempts
-                if sisa_coba <= 0:
-                    st.session_state.lockout_until = time.time() + 30
-                    st.session_state.login_attempts = 0
-                    st.error("PIN salah 5 kali. Halaman dikunci selama 30 detik.")
-                else:
-                    st.error(f"PIN salah! Sisa percobaan: {sisa_coba} kali.")
-    st.stop()
-
-def proses_logout():
-    st.session_state.admin_auth = False
-    st.session_state.nota_verified = None
-    st.session_state.nota_manual_preview = None
-    st.session_state.preview_pending_oid = None
-    if "token" in st.query_params:
-        del st.query_params["token"]
-    st.rerun()
-
-# --- AMBIL DATA ADMIN DARI CACHE ---
+# --- 5. AMBIL DATA PRODUK & QRIS ---
 try:
-    data_produk_admin, semua_pesanan, cfg_toko = load_admin_data()
+    data_produk_list, cfg_toko = load_nota_data()
 except Exception as e:
     if "429" in str(e):
         st.warning("⏳ Kuota akses Google Sheets sedang penuh sementara. Tunggu 30–60 detik lalu tekan tombol **🔄 Coba Lagi**.")
         if st.button("🔄 Coba Lagi"):
-            load_admin_data.clear()
+            load_nota_data.clear()
             st.rerun()
     else:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI UPLOAD FOTO KE IMGBB ---
-def upload_foto_galeri(uploaded_file):
-    api_key = st.secrets.get("imgbb_api_key", "")
-    if not api_key:
-        return None, "API Key ImgBB belum dipasang di Secrets Streamlit."
-    try:
-        img_b64 = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
-        res = requests.post(
-            "https://api.imgbb.com/1/upload",
-            data={"key": api_key, "image": img_b64},
-            timeout=25
-        )
-        hasil = res.json()
-        if hasil.get("success"):
-            return hasil["data"]["url"], None
-        return None, f"Gagal upload ke ImgBB: {hasil.get('error', {}).get('message', 'Error tidak diketahui')}"
-    except Exception as e:
-        return None, f"Koneksi upload gagal: {e}"
-
-# --- 7. FUNGSI RENDER NOTA PINK ESTETIK (MENDUKUNG MODE PRATINJAU & LUNAS) ---
-def tampilkan_nota_estetik(payload_nota, is_preview=False):
+# --- 6. FUNGSI RENDER NOTA PINK ESTETIK (PROPORSI TERKUNCI UNTUK SEMUA LAYAR) ---
+def tampilkan_nota_estetik(payload_nota):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
     order_id = payload_nota.get("order_id", "MAN-" + str(uuid.uuid4())[:6].upper())
@@ -303,7 +190,6 @@ def tampilkan_nota_estetik(payload_nota, is_preview=False):
     data_for_js["order_id"] = order_id
     data_for_js["sig_code"] = sig_code
     data_for_js["verify_url"] = verify_url
-    data_for_js["is_preview"] = bool(is_preview)
 
     extra_rows = max(0, len(payload_nota["items"]) - 3)
     iframe_height = 790 + (extra_rows * 38)
@@ -552,7 +438,7 @@ def tampilkan_nota_estetik(payload_nota, is_preview=False):
             </div>
         </div>
 
-        <button class="btn-dl" id="btn-dl-nota" onclick="downloadNotaJPG()">📥 Download Gambar Nota (JPG)</button>
+        <button class="btn-dl" onclick="downloadNotaJPG()">📥 Download Gambar Nota (JPG)</button>
         <div id="jpg-preview-area">
             <p style="font-size: 12px; font-weight: 700; color: #d81b60;">Untuk pengguna iPhone: Tekan lama gambar di bawah lalu pilih <u>Simpan ke Foto</u></p>
             <img id="img-hasil" alt="Nota JPG">
@@ -561,33 +447,25 @@ def tampilkan_nota_estetik(payload_nota, is_preview=False):
         <script>
             const data = __DATA_JSON__;
             const formatRp = (n) => new Intl.NumberFormat('id-ID').format(n);
+            const escHtml = (str) => String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
 
             document.getElementById('out-nama').innerText = data.nama;
             document.getElementById('out-tanggal').innerText = data.tanggal;
+            document.getElementById('wm-text').innerText = `LUNAS • ${data.order_id} • BYKAMILA`;
+            document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
 
-            if (data.is_preview) {
-                document.getElementById('wm-text').innerText = 'PRATINJAU • BELUM LUNAS';
-                const authEl = document.getElementById('out-auth');
-                authEl.innerText = `⏳ PRATINJAU TAGIHAN • ${data.order_id} • BELUM LUNAS`;
-                authEl.style.color = '#e65100';
-                authEl.style.background = '#fff3e0';
-                authEl.style.borderColor = '#ffcc80';
-                document.getElementById('qrcode-box').style.display = 'none';
-                const dlBtn = document.getElementById('btn-dl-nota');
-                dlBtn.innerText = '📥 Download Gambar Tagihan / Pratinjau (JPG)';
-                dlBtn.style.backgroundColor = '#d81b60';
-            } else {
-                document.getElementById('wm-text').innerText = `LUNAS • ${data.order_id} • BYKAMILA`;
-                document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
-                new QRCode(document.getElementById("qrcode-box"), {
-                    text: data.verify_url,
-                    width: 64,
-                    height: 64,
-                    colorDark: "#d81b60",
-                    colorLight: "#ffffff",
-                    correctLevel: QRCode.CorrectLevel.M
-                });
-            }
+            new QRCode(document.getElementById("qrcode-box"), {
+                text: data.verify_url,
+                width: 64,
+                height: 64,
+                colorDark: "#d81b60",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
 
             let rowsHTML = '';
             let subtotal = 0;
@@ -601,7 +479,7 @@ def tampilkan_nota_estetik(payload_nota, is_preview=False):
                     rowsHTML += `
                         <tr>
                             <td class="col-no">${i + 1}</td>
-                            <td class="col-nama">${it.nama}</td>
+                            <td class="col-nama">${escHtml(it.nama)}</td>
                             <td class="col-jml">${it.qty} pcs</td>
                             <td class="col-hrg">Rp ${formatRp(it.harga)}</td>
                         </tr>`;
@@ -658,9 +536,8 @@ def tampilkan_nota_estetik(payload_nota, is_preview=False):
                     document.getElementById('img-hasil').src = url;
                     document.getElementById('jpg-preview-area').style.display = 'block';
 
-                    const prefixFile = data.is_preview ? "Tagihan" : "Nota_Lunas";
                     const a = document.createElement('a');
-                    a.download = `${prefixFile}_${data.nama}.jpg`;
+                    a.download = `Nota_${data.nama}.jpg`;
                     a.href = url;
                     a.click();
                 }).catch(() => {
@@ -675,475 +552,124 @@ def tampilkan_nota_estetik(payload_nota, is_preview=False):
     final_html = html_template.replace("__DATA_JSON__", json.dumps(data_for_js))
     components.html(final_html, height=iframe_height, scrolling=True)
 
-# --- 8. HEADER & TOMBOL REFRESH / LOGOUT ---
-col_head1, col_head2, col_head3 = st.columns([3.2, 1.1, 1.1])
+# --- 7. HEADER & PANEL TAMPILAN QRIS ---
+col_head1, col_head2 = st.columns([3.5, 1.2])
 with col_head1:
-    st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Admin ByKamila ♡</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Nota Homedress ByKamila ♡</h3>", unsafe_allow_html=True)
 with col_head2:
-    if st.button("🔄 Refresh", use_container_width=True):
-        load_admin_data.clear()
+    if st.button("🔄 Refresh", use_container_width=True, help="Perbarui daftar harga produk & QRIS"):
+        load_nota_data.clear()
+        ambil_bytes_gambar.clear()
         st.rerun()
-with col_head3:
-    if st.button("🚪 Logout", use_container_width=True):
-        proses_logout()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📋 Pesanan", "🧾 Nota", "📦 Stok", "💳 QRIS"])
+qris_tersimpan = cfg_toko.get("qris_url", "").strip()
+info_bayar_tersimpan = cfg_toko.get("info_bayar", "").strip()
+qris_bytes = ambil_bytes_gambar(qris_tersimpan) if qris_tersimpan else None
 
-# ==============================================================================
-# TAB 1: VERIFIKASI, PRATINJAU & CANCEL PESANAN DARI KATALOG
-# ==============================================================================
-with tab1:
-    if "preview_pending_oid" not in st.session_state:
-        st.session_state.preview_pending_oid = None
-
-    if "nota_verified" in st.session_state and st.session_state.nota_verified:
-        st.success("✅ Pesanan berhasil diverifikasi Lunas & stok otomatis diperbarui!")
-        tampilkan_nota_estetik(st.session_state.nota_verified, is_preview=False)
-        if st.button("⬅️ Kembali ke Daftar Pesanan Masuk", use_container_width=True):
-            st.session_state.nota_verified = None
-            st.rerun()
-        st.divider()
-
-    pesanan_pending = {}
-
-    for idx, row in enumerate(semua_pesanan, start=2):
-        if str(row.get("Status", "")).strip() == "Menunggu Verifikasi":
-            oid = str(row["ID Pesanan"])
-            if oid not in pesanan_pending:
-                pesanan_pending[oid] = {
-                    "id": oid,
-                    "tgl": str(row["Tgl"]),
-                    "nama": str(row["Nama Customer"]),
-                    "wa": str(row["No WA"]),
-                    "items": [],
-                    "rows": []
-                }
-            qty = int(row["Jml"])
-            tot = int(row["Total Harga"])
-            harga_satuan = int(tot / qty) if qty > 0 else 0
-            pesanan_pending[oid]["items"].append({
-                "nama": str(row["Nama Barang"]),
-                "qty": qty,
-                "harga": harga_satuan,
-                "subtotal": tot
-            })
-            pesanan_pending[oid]["rows"].append(idx)
-
-    if not pesanan_pending:
-        st.info("Belum ada pesanan baru yang menunggu verifikasi.")
-    else:
-        st.write(f"Ditemukan **{len(pesanan_pending)}** pesanan menunggu konfirmasi:")
-        for oid, order in pesanan_pending.items():
-            with st.container(border=True):
-                c_info, c_wa = st.columns([3, 1.3])
-                with c_info:
-                    st.markdown(f"**{order['nama']}** (`{oid}`)")
-                    st.caption(f"Waktu Booking: {order['tgl']} | WA: {order['wa']}")
-                with c_wa:
-                    wa_clean = order['wa'].strip().lstrip("0")
-                    if not wa_clean.startswith("62"):
-                        wa_clean = "62" + wa_clean
-                    st.link_button("💬 Chat WA", f"https://wa.me/{wa_clean}", use_container_width=True)
-
-                total_brg = 0
-                for it in order["items"]:
-                    st.write(f"• {it['nama']} — {it['qty']} pcs x Rp {it['harga']:,.0f} = **Rp {it['subtotal']:,.0f}**".replace(",", "."))
-                    total_brg += it["subtotal"]
-                st.markdown(f"**Subtotal Barang: Rp {total_brg:,.0f}**".replace(",", "."))
-
-                c_ongkir, c_diskon = st.columns(2)
-                with c_ongkir:
-                    ongkir_in = st.number_input("Ongkir (Rp)", min_value=0, step=1000, key=f"ong_{oid}")
-                with c_diskon:
-                    diskon_in = st.number_input("Diskon (Rp)", min_value=0, step=1000, key=f"dis_{oid}")
-
-                tgl_nota = " ".join(order["tgl"].split()[:3]) if len(order["tgl"].split()) >= 3 else order["tgl"]
-
-                # Tombol Pratinjau Nota sebelum Verifikasi Lunas
-                sedang_preview = (st.session_state.preview_pending_oid == oid)
-                if not sedang_preview:
-                    if st.button("👁️ Pratinjau Nota", key=f"prev_{oid}", use_container_width=True):
-                        st.session_state.preview_pending_oid = oid
-                        st.rerun()
-                else:
-                    if st.button("✖️ Tutup Pratinjau", key=f"close_prev_{oid}", use_container_width=True):
-                        st.session_state.preview_pending_oid = None
-                        st.rerun()
-                    tampilkan_nota_estetik({
-                        "order_id": oid,
-                        "nama": order["nama"],
-                        "tanggal": tgl_nota,
-                        "items": order["items"],
-                        "ongkir": int(ongkir_in),
-                        "diskon": int(diskon_in)
-                    }, is_preview=True)
-
-                btn_verif, btn_cancel = st.columns(2)
-                with btn_verif:
-                    if st.button("✅ Verifikasi Lunas", key=f"ok_{oid}", type="primary", use_container_width=True):
-                        with st.spinner("Memproses verifikasi & mengurangi stok..."):
-                            db = get_google_sheet()
-                            ws_produk = db.worksheet("Produk")
-                            ws_pesanan = db.worksheet("Pesanan")
-                            data_prod = ws_produk.get_all_records()
-
-                            for r_idx in order["rows"]:
-                                ws_pesanan.update_cell(r_idx, 8, "Lunas")
-                            for it in order["items"]:
-                                for p_idx, p in enumerate(data_prod, start=2):
-                                    if str(p["Nama Barang"]) == it["nama"]:
-                                        tot_lama = int(p["Stok Total"]) if p["Stok Total"] != "" else 0
-                                        kunci_lama = int(p["Stok Terkunci"]) if p["Stok Terkunci"] != "" else 0
-                                        ws_produk.update_cell(p_idx, 5, max(0, tot_lama - it["qty"]))
-                                        ws_produk.update_cell(p_idx, 6, max(0, kunci_lama - it["qty"]))
-                                        break
-
-                            load_admin_data.clear()
-                            st.session_state.preview_pending_oid = None
-                            st.session_state.nota_verified = {
-                                "order_id": oid,
-                                "nama": order["nama"],
-                                "tanggal": tgl_nota,
-                                "items": order["items"],
-                                "ongkir": int(ongkir_in),
-                                "diskon": int(diskon_in)
-                            }
-                            st.rerun()
-
-                with btn_cancel:
-                    if st.button("❌ Cancel Pesanan", key=f"no_{oid}", use_container_width=True):
-                        with st.spinner("Membatalkan pesanan & mengembalikan stok..."):
-                            db = get_google_sheet()
-                            ws_produk = db.worksheet("Produk")
-                            ws_pesanan = db.worksheet("Pesanan")
-                            data_prod = ws_produk.get_all_records()
-
-                            for r_idx in order["rows"]:
-                                ws_pesanan.update_cell(r_idx, 8, "Dibatalkan")
-                            for it in order["items"]:
-                                for p_idx, p in enumerate(data_prod, start=2):
-                                    if str(p["Nama Barang"]) == it["nama"]:
-                                        kunci_lama = int(p["Stok Terkunci"]) if p["Stok Terkunci"] != "" else 0
-                                        ws_produk.update_cell(p_idx, 6, max(0, kunci_lama - it["qty"]))
-                                        break
-
-                            load_admin_data.clear()
-                            st.session_state.preview_pending_oid = None
-                            st.warning(f"Pesanan {oid} ({order['nama']}) dibatalkan. Stok otomatis kembali ke katalog!")
-                            st.rerun()
-
-# ==============================================================================
-# TAB 2: BUAT NOTA MANUAL (DENGAN TOMBOL HAPUS PER BARIS & RESET)
-# ==============================================================================
-with tab2:
-    st.subheader("Buat Nota Manual")
-    daftar_nama_prod = ["-- Ketik Manual --"] + [str(p["Nama Barang"]) for p in data_produk_admin]
-
-    c_m1, c_m2 = st.columns(2)
-    with c_m1:
-        m_nama = st.text_input("Nama Customer", placeholder="Contoh: Bude Heni", key="m_nama")
-    with c_m2:
-        m_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="m_tgl")
-
-    if "manual_row_ids" not in st.session_state or not st.session_state.manual_row_ids:
-        st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
-
-    items_manual = []
-    jumlah_baris_aktif = len(st.session_state.manual_row_ids)
-
-    for idx_baris, rid in enumerate(list(st.session_state.manual_row_ids)):
-        c_lbl, c_del = st.columns([3.5, 1])
-        with c_lbl:
-            st.markdown(f"**Barang #{idx_baris + 1}**")
-        with c_del:
-            if jumlah_baris_aktif > 1:
-                if st.button("🗑️ Hapus", key=f"del_row_{rid}", use_container_width=True):
-                    st.session_state.manual_row_ids.remove(rid)
-                    for prefix in ("sel_m_", "txt_m_", "qty_m_", "hrg_m_"):
-                        st.session_state.pop(f"{prefix}{rid}", None)
-                    st.rerun()
-
-        col_p, col_j, col_h = st.columns([2.2, 0.9, 1.3])
-        with col_p:
-            pilih = st.selectbox("Pilih Katalog", daftar_nama_prod, key=f"sel_m_{rid}", label_visibility="collapsed")
-            if pilih == "-- Ketik Manual --":
-                nama_item_m = st.text_input("Nama Barang", placeholder="Ketik nama barang...", key=f"txt_m_{rid}", label_visibility="collapsed")
-                harga_default = 0
-            else:
-                nama_item_m = pilih
-                cocok = next((p for p in data_produk_admin if str(p["Nama Barang"]) == pilih), None)
-                harga_default = int(cocok["Harga"]) if cocok else 0
-        with col_j:
-            qty_m = st.number_input("Jml", min_value=1, value=1, key=f"qty_m_{rid}")
-        with col_h:
-            harga_m = st.number_input("Harga Satuan", min_value=0, value=harga_default, step=1000, key=f"hrg_m_{rid}")
-
-        if nama_item_m.strip() and harga_m > 0:
-            items_manual.append({"nama": nama_item_m.strip(), "qty": int(qty_m), "harga": int(harga_m)})
-
-    c_add_btn, c_rst_btn = st.columns([2.5, 1.2])
-    with c_add_btn:
-        if st.button("+ Tambah Baris Barang", use_container_width=True):
-            st.session_state.manual_row_ids.append(str(uuid.uuid4())[:6])
-            st.rerun()
-    with c_rst_btn:
-        if st.button("🧹 Reset Semua", use_container_width=True):
-            for rid in st.session_state.manual_row_ids:
-                for prefix in ("sel_m_", "txt_m_", "qty_m_", "hrg_m_"):
-                    st.session_state.pop(f"{prefix}{rid}", None)
-            st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
-            st.session_state.nota_manual_preview = None
-            st.rerun()
-
-    col_mo, col_md = st.columns(2)
-    with col_mo:
-        m_ongkir = st.number_input("Ongkir (Rp)", min_value=0, step=1000, key="m_ongkir")
-    with col_md:
-        m_diskon = st.number_input("Diskon (Rp)", min_value=0, step=1000, key="m_diskon")
-
-    if st.button("1. Buat Pratinjau Nota", type="primary", use_container_width=True):
-        if not m_nama.strip() or not items_manual:
-            st.error("Isi Nama Customer dan minimal 1 barang terlebih dahulu.")
-        else:
-            bulan_id = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-            tgl_fmt = f"{m_tgl.day} {bulan_id[m_tgl.month - 1]} {m_tgl.year}"
-            st.session_state.nota_manual_preview = {
-                "order_id": "MAN-" + str(uuid.uuid4())[:6].upper(),
-                "nama": m_nama.strip(),
-                "tanggal": tgl_fmt,
-                "items": items_manual,
-                "ongkir": int(m_ongkir),
-                "diskon": int(m_diskon)
-            }
-
-    if "nota_manual_preview" in st.session_state and st.session_state.nota_manual_preview:
-        tampilkan_nota_estetik(st.session_state.nota_manual_preview, is_preview=False)
-
-# ==============================================================================
-# TAB 3: KELOLA STOK, UPLOAD FOTO & KETERANGAN PRODUK
-# ==============================================================================
-with tab3:
-    stok_list = data_produk_admin
-
-    with st.expander("➕ Tambah Produk Baru ke Katalog", expanded=True):
-        with st.form("form_tambah_produk", clear_on_submit=True):
-            nama_baru = st.text_input("Nama Barang / Motif", placeholder="Contoh: Mecca Prayer Set")
-            c_t1, c_t2 = st.columns(2)
-            with c_t1:
-                harga_baru = st.number_input("Harga Satuan (Rp)", min_value=0, step=5000, value=115000)
-            with c_t2:
-                stok_baru = st.number_input("Jumlah Stok Awal (pcs)", min_value=1, step=1, value=1)
-
-            ket_baru = st.text_area(
-                "Keterangan / Detail Produk (Bisa copy-paste dari WhatsApp)",
-                height=140,
-                placeholder="Contoh:\nBahan : Rayon Premium\nAll size muat BB sd 100 kg\n\nSize Chart:\nPj Depan +- 118 cm\nBerat : +- 600gr"
-            )
-
-            foto_file = st.file_uploader("Upload Foto dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
-            foto_link_manual = st.text_input("Atau Tempel Link Foto (Opsional jika tidak upload)")
-
-            simpan_produk = st.form_submit_button("💾 Simpan Produk ke Katalog", type="primary", use_container_width=True)
-
-            if simpan_produk:
-                if not nama_baru.strip():
-                    st.error("Nama barang wajib diisi!")
-                else:
-                    url_foto_final = foto_link_manual.strip()
-                    lanjut_simpan = True
-
-                    if foto_file is not None:
-                        with st.spinner("Mengunggah foto ke server..."):
-                            url_uploaded, err_msg = upload_foto_galeri(foto_file)
-                            if err_msg:
-                                st.error(err_msg)
-                                lanjut_simpan = False
-                            else:
-                                url_foto_final = url_uploaded
-
-                    if lanjut_simpan:
-                        with st.spinner("Menyimpan ke database..."):
-                            db = get_google_sheet()
-                            ws_produk = db.worksheet("Produk")
-                            id_prd = "PRD-" + str(uuid.uuid4())[:4].upper()
-                            baris_baru = len(ws_produk.get_all_values()) + 1
-                            rumus_tersedia = f"=E{baris_baru}-F{baris_baru}"
-                            ws_produk.append_row(
-                                [
-                                    id_prd,
-                                    nama_baru.strip(),
-                                    int(harga_baru),
-                                    url_foto_final,
-                                    int(stok_baru),
-                                    0,
-                                    rumus_tersedia,
-                                    ket_baru.strip()
-                                ],
-                                value_input_option="USER_ENTERED"
-                            )
-                            load_admin_data.clear()
-                            st.success(f"✅ **{nama_baru}** berhasil ditambahkan ke katalog!")
-                            st.rerun()
-
-    with st.expander("✏️ Update Stok, Harga & Keterangan Produk Lama", expanded=False):
-        if not stok_list:
-            st.info("Belum ada produk di database.")
-        else:
-            pilihan_edit = [str(p["Nama Barang"]) for p in stok_list]
-            nama_diedit = st.selectbox("Pilih Produk yang Ingin Diubah", pilihan_edit, key="edit_pilih_prd")
-            idx_edit = pilihan_edit.index(nama_diedit)
-            data_lama = stok_list[idx_edit]
-            baris_sheet_edit = idx_edit + 2
-
-            st.caption(
-                f"Info saat ini — Terkunci: **{data_lama.get('Stok Terkunci', 0)} pcs** | "
-                f"Tersedia di Katalog: **{data_lama.get('Stok Tersedia', 0)} pcs**"
-            )
-
-            with st.form(f"form_edit_produk_{idx_edit}"):
-                c_e1, c_e2 = st.columns(2)
-                with c_e1:
-                    harga_edit = st.number_input("Harga Satuan (Rp)", min_value=0, step=5000, value=int(data_lama.get("Harga", 0)))
-                with c_e2:
-                    stok_tot_edit = st.number_input("Stok Total (pcs)", min_value=0, step=1, value=int(data_lama.get("Stok Total", 0)))
-
-                ket_edit = st.text_area(
-                    "Keterangan / Detail Produk",
-                    value=str(data_lama.get("Keterangan", "")),
-                    height=140,
-                    placeholder="Isi keterangan bahan, ukuran, berat, dll..."
-                )
-
-                foto_ganti = st.file_uploader("Ganti Foto Baru (Biarkan kosong jika tidak diganti)", type=["jpg", "jpeg", "png", "webp"], key=f"ganti_foto_{idx_edit}")
-
-                c_btn_e1, c_btn_e2 = st.columns(2)
-                with c_btn_e1:
-                    btn_simpan_edit = st.form_submit_button("💾 Simpan Perubahan", type="primary", use_container_width=True)
-                with c_btn_e2:
-                    btn_hapus_prd = st.form_submit_button("🗑️ Hapus Produk", use_container_width=True)
-
-                if btn_simpan_edit:
-                    url_foto_baru = str(data_lama.get("Foto URL", ""))
-                    ok_update = True
-                    if foto_ganti is not None:
-                        with st.spinner("Mengunggah foto baru..."):
-                            url_up, err_up = upload_foto_galeri(foto_ganti)
-                            if err_up:
-                                st.error(err_up)
-                                ok_update = False
-                            else:
-                                url_foto_baru = url_up
-
-                    if ok_update:
-                        with st.spinner("Memperbarui data produk..."):
-                            db = get_google_sheet()
-                            ws_produk = db.worksheet("Produk")
-                            ws_produk.update_cell(baris_sheet_edit, 3, int(harga_edit))
-                            ws_produk.update_cell(baris_sheet_edit, 4, url_foto_baru)
-                            ws_produk.update_cell(baris_sheet_edit, 5, int(stok_tot_edit))
-                            if ket_edit.strip() == "":
-                                try:
-                                    ws_produk.batch_clear([f"H{baris_sheet_edit}"])
-                                except Exception:
-                                    ws_produk.update_cell(baris_sheet_edit, 8, "")
-                            else:
-                                ws_produk.update_cell(baris_sheet_edit, 8, ket_edit.strip())
-                            load_admin_data.clear()
-                            st.success(f"✅ Data **{nama_diedit}** berhasil diperbarui!")
-                            st.rerun()
-
-                if btn_hapus_prd:
-                    db = get_google_sheet()
-                    ws_produk = db.worksheet("Produk")
-                    ws_produk.delete_rows(baris_sheet_edit)
-                    load_admin_data.clear()
-                    st.warning(f"Produk **{nama_diedit}** telah dihapus dari katalog.")
-                    st.rerun()
-
-    st.subheader("Daftar Persediaan Saat Ini")
-    if stok_list:
-        tampil_stok = [
-            {
-                "Nama Barang": p.get("Nama Barang"),
-                "Harga": f"Rp {int(p.get('Harga', 0)):,.0f}".replace(",", "."),
-                "Total": p.get("Stok Total"),
-                "Terkunci": p.get("Stok Terkunci"),
-                "Tersedia": p.get("Stok Tersedia")
-            }
-            for p in stok_list
-        ]
-        st.dataframe(tampil_stok, use_container_width=True, hide_index=True)
-
-# ==============================================================================
-# TAB 4: PANEL KHUSUS QRIS TOKO (TANPA PERLU CHECKOUT)
-# ==============================================================================
-with tab4:
-    st.subheader("💳 Kartu QRIS & Rekening Toko")
-    qris_tersimpan = cfg_toko.get("qris_url", "").strip()
-    info_bayar_tersimpan = cfg_toko.get("info_bayar", "").strip()
-    qris_bytes_admin = ambil_bytes_gambar(qris_tersimpan) if qris_tersimpan else None
-
-    if qris_bytes_admin:
-        with st.container(border=True):
-            st.success("✅ QRIS aktif dan tersimpan permanen di database.")
+if qris_bytes or info_bayar_tersimpan:
+    with st.expander("💳 Tampilkan QRIS & Info Pembayaran", expanded=False):
+        if qris_bytes:
             c_q1, c_q2, c_q3 = st.columns([1, 2.2, 1])
             with c_q2:
-                st.image(qris_bytes_admin, caption="QRIS Homedress ByKamila", use_container_width=True)
+                st.image(qris_bytes, caption="QRIS Homedress ByKamila", use_container_width=True)
                 st.download_button(
                     label="📥 Download Gambar QRIS (JPG)",
-                    data=qris_bytes_admin,
+                    data=qris_bytes,
                     file_name="QRIS_Homedress_ByKamila.jpg",
                     mime="image/jpeg",
-                    type="primary",
                     use_container_width=True
                 )
-            st.caption("Tips iPhone: Tekan lama pada gambar QRIS di atas jika ingin langsung memilih 'Simpan ke Foto'.")
-    else:
-        st.warning("Belum ada gambar QRIS yang di-upload. Silakan upload pada formulir di bawah ini (cukup 1 kali saja).")
+        if info_bayar_tersimpan:
+            st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
 
-    if info_bayar_tersimpan:
-        with st.container(border=True):
-            st.info(f"**Info Rekening / Pembayaran Aktif:**\n\n{info_bayar_tersimpan}")
-            if st.button("🗑️ Hapus Info Rekening", use_container_width=True):
-                simpan_pengaturan("info_bayar", "")
-                load_admin_data.clear()
-                st.success("✅ Info rekening berhasil dihapus!")
+st.divider()
+
+# --- 8. FORM PEMBUATAN NOTA ---
+st.subheader("🧾 Buat Nota Penjualan")
+daftar_nama_prod = ["-- Ketik Manual --"] + [str(p["Nama Barang"]) for p in data_produk_list if str(p.get("Nama Barang", "")).strip()]
+
+c_m1, c_m2 = st.columns(2)
+with c_m1:
+    m_nama = st.text_input("Nama Customer", placeholder="Contoh: Bude Heni", key="m_nama")
+with c_m2:
+    m_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="m_tgl")
+
+if "manual_row_ids" not in st.session_state or not st.session_state.manual_row_ids:
+    st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
+
+items_manual = []
+jumlah_baris_aktif = len(st.session_state.manual_row_ids)
+
+for idx_baris, rid in enumerate(list(st.session_state.manual_row_ids)):
+    c_lbl, c_del = st.columns([3.5, 1])
+    with c_lbl:
+        st.markdown(f"**Barang #{idx_baris + 1}**")
+    with c_del:
+        if jumlah_baris_aktif > 1:
+            if st.button("🗑️ Hapus", key=f"del_row_{rid}", use_container_width=True):
+                st.session_state.manual_row_ids.remove(rid)
+                for prefix in ("sel_m_", "last_sel_", "txt_m_", "qty_m_", "hrg_m_"):
+                    st.session_state.pop(f"{prefix}{rid}", None)
                 st.rerun()
 
-    with st.expander("⚙️ Upload / Ganti QRIS & Pengaturan Link", expanded=(not bool(qris_bytes_admin))):
-        rek_widget_key = f"rek_in_{hashlib.md5(info_bayar_tersimpan.encode()).hexdigest()[:6]}"
-        with st.form("form_pengaturan_qris"):
-            qris_file = st.file_uploader("Pilih Gambar QRIS dari Galeri HP", type=["jpg", "jpeg", "png", "webp"])
-            info_rek_in = st.text_area(
-                "Info Rekening Tambahan (Kosongkan jika ingin menghapus)",
-                value=info_bayar_tersimpan,
-                key=rek_widget_key,
-                placeholder="Contoh: BCA 1234567890 a.n. Kamila"
-            )
-            admin_url_in = st.text_input(
-                "Link Web Admin Ini (Untuk tujuan scan QR Keaslian Nota)",
-                value=cfg_toko.get("admin_url", ""),
-                placeholder="Contoh: https://bykamila.streamlit.app"
-            )
-            simpan_qris = st.form_submit_button("💾 Simpan QRIS & Pengaturan", type="primary", use_container_width=True)
+    col_p, col_j, col_h = st.columns([2.2, 0.9, 1.3])
+    with col_p:
+        pilih = st.selectbox("Pilih Katalog", daftar_nama_prod, key=f"sel_m_{rid}", label_visibility="collapsed")
+        if pilih == "-- Ketik Manual --":
+            nama_item_m = st.text_input("Nama Barang", placeholder="Ketik nama barang...", key=f"txt_m_{rid}", label_visibility="collapsed")
+            harga_default = 0
+        else:
+            nama_item_m = pilih
+            cocok = next((p for p in data_produk_list if str(p["Nama Barang"]) == pilih), None)
+            harga_default = int(cocok["Harga"]) if cocok and str(cocok.get("Harga", "")).isdigit() else 0
 
-            if simpan_qris:
-                qris_url_final = qris_tersimpan
-                ok_qris = True
-                if qris_file is not None:
-                    with st.spinner("Mengunggah gambar QRIS permanen..."):
-                        up_qris, err_qris = upload_foto_galeri(qris_file)
-                        if err_qris:
-                            st.error(err_qris)
-                            ok_qris = False
-                        else:
-                            qris_url_final = up_qris
+        # Otomatis isi harga satuan saat produk dipilih dari dropdown, namun tetap bisa diubah manual
+        if st.session_state.get(f"last_sel_{rid}") != pilih:
+            st.session_state[f"last_sel_{rid}"] = pilih
+            st.session_state[f"hrg_m_{rid}"] = harga_default
 
-                if ok_qris:
-                    simpan_pengaturan("qris_url", qris_url_final)
-                    simpan_pengaturan("info_bayar", info_rek_in.strip())
-                    simpan_pengaturan("admin_url", admin_url_in.strip())
-                    ambil_bytes_gambar.clear()
-                    load_admin_data.clear()
-                    st.success("✅ QRIS & pengaturan pembayaran berhasil disimpan!")
-                    st.rerun()
+    with col_j:
+        qty_m = st.number_input("Jml", min_value=1, value=1, key=f"qty_m_{rid}")
+    with col_h:
+        harga_m = st.number_input("Harga Satuan", min_value=0, step=1000, key=f"hrg_m_{rid}")
+
+    if nama_item_m.strip() and harga_m > 0:
+        items_manual.append({"nama": nama_item_m.strip(), "qty": int(qty_m), "harga": int(harga_m)})
+
+c_add_btn, c_rst_btn = st.columns([2.5, 1.2])
+with c_add_btn:
+    if st.button("+ Tambah Baris Barang", use_container_width=True):
+        st.session_state.manual_row_ids.append(str(uuid.uuid4())[:6])
+        st.rerun()
+with c_rst_btn:
+    if st.button("🧹 Reset Semua", use_container_width=True):
+        for rid in st.session_state.manual_row_ids:
+            for prefix in ("sel_m_", "last_sel_", "txt_m_", "qty_m_", "hrg_m_"):
+                st.session_state.pop(f"{prefix}{rid}", None)
+        st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
+        st.session_state.nota_manual_preview = None
+        st.rerun()
+
+col_mo, col_md = st.columns(2)
+with col_mo:
+    m_ongkir = st.number_input("Ongkir (Rp)", min_value=0, step=1000, key="m_ongkir")
+with col_md:
+    m_diskon = st.number_input("Diskon (Rp)", min_value=0, step=1000, key="m_diskon")
+
+if st.button("✨ Buat Nota Sekarang", type="primary", use_container_width=True):
+    if not m_nama.strip() or not items_manual:
+        st.error("Isi Nama Customer dan minimal 1 barang terlebih dahulu.")
+    else:
+        bulan_id = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+        tgl_fmt = f"{m_tgl.day} {bulan_id[m_tgl.month - 1]} {m_tgl.year}"
+        st.session_state.nota_manual_preview = {
+            "order_id": "MAN-" + str(uuid.uuid4())[:6].upper(),
+            "nama": m_nama.strip(),
+            "tanggal": tgl_fmt,
+            "items": items_manual,
+            "ongkir": int(m_ongkir),
+            "diskon": int(m_diskon)
+        }
+
+if "nota_manual_preview" in st.session_state and st.session_state.nota_manual_preview:
+    tampilkan_nota_estetik(st.session_state.nota_manual_preview)
