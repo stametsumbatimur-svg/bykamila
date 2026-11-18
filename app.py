@@ -667,36 +667,36 @@ if qris_bytes or info_bayar_tersimpan:
         if info_bayar_tersimpan:
             st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
 
-with st.expander("🖼️ Pengaturan Logo Nota", expanded=(not bool(logo_bytes))):
-    if logo_bytes:
-        c_l1, c_l2, c_l3 = st.columns([1.2, 1.6, 1.2])
-        with c_l2:
-            st.image(logo_bytes, caption="Logo Aktif di Nota", use_container_width=True)
-        if st.button("🗑️ Hapus Logo (Kembali ke Tulisan)", use_container_width=True):
-            simpan_pengaturan("logo_url", "")
-            load_nota_data.clear()
-            ambil_bytes_gambar.clear()
-            st.success("✅ Logo dihapus.")
-            st.rerun()
+#with st.expander("🖼️ Pengaturan Logo Nota", expanded=(not bool(logo_bytes))):
+   # if logo_bytes:
+  #      c_l1, c_l2, c_l3 = st.columns([1.2, 1.6, 1.2])
+  #      with c_l2:
+   #         st.image(logo_bytes, caption="Logo Aktif di Nota", use_container_width=True)
+   #     if st.button("🗑️ Hapus Logo (Kembali ke Tulisan)", use_container_width=True):
+    #        simpan_pengaturan("logo_url", "")
+     #       load_nota_data.clear()
+      #      ambil_bytes_gambar.clear()
+       #     st.success("✅ Logo dihapus.")
+        #    st.rerun()
 
-    with st.form("form_upload_logo"):
-        logo_file = st.file_uploader("Upload Gambar Logo Toko (Cukup 1 kali saja)", type=["jpg", "jpeg", "png", "webp"])
-        simpan_logo_btn = st.form_submit_button("💾 Simpan Logo ke Nota", type="primary", use_container_width=True)
+    #with st.form("form_upload_logo"):
+     #   logo_file = st.file_uploader("Upload Gambar Logo Toko (Cukup 1 kali saja)", type=["jpg", "jpeg", "png", "webp"])
+      #  simpan_logo_btn = st.form_submit_button("💾 Simpan Logo ke Nota", type="primary", use_container_width=True)
 
-        if simpan_logo_btn:
-            if logo_file is None:
-                st.error("Pilih file gambar logo terlebih dahulu.")
-            else:
-                with st.spinner("Mengunggah & menyimpan logo permanen..."):
-                    url_logo_baru, err_logo = upload_gambar_imgbb(logo_file)
-                    if err_logo:
-                        st.error(err_logo)
-                    else:
-                        simpan_pengaturan("logo_url", url_logo_baru)
-                        load_nota_data.clear()
-                        ambil_bytes_gambar.clear()
-                        st.success("✅ Logo berhasil disimpan! Otomatis muncul di setiap nota.")
-                        st.rerun()
+       # if simpan_logo_btn:
+        #    if logo_file is None:
+        #        st.error("Pilih file gambar logo terlebih dahulu.")
+        #    else:
+         #       with st.spinner("Mengunggah & menyimpan logo permanen..."):
+          #          url_logo_baru, err_logo = upload_gambar_imgbb(logo_file)
+           #         if err_logo:
+            #            st.error(err_logo)
+             #       else:
+              #          simpan_pengaturan("logo_url", url_logo_baru)
+               #         load_nota_data.clear()
+                #        ambil_bytes_gambar.clear()
+                 #       st.success("✅ Logo berhasil disimpan! Otomatis muncul di setiap nota.")
+                       # st.rerun()
 
 st.divider()
 
