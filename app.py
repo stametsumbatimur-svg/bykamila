@@ -52,24 +52,6 @@ def ambil_bytes_gambar(url):
         pass
     return None
 
-def upload_gambar_imgbb(uploaded_file):
-    api_key = st.secrets.get("imgbb_api_key", "")
-    if not api_key:
-        return None, "API Key ImgBB belum dipasang di Secrets Streamlit."
-    try:
-        img_b64 = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
-        res = requests.post(
-            "https://api.imgbb.com/1/upload",
-            data={"key": api_key, "image": img_b64},
-            timeout=25
-        )
-        hasil = res.json()
-        if hasil.get("success"):
-            return hasil["data"]["url"], None
-        return None, f"Gagal upload gambar: {hasil.get('error', {}).get('message', 'Error tidak diketahui')}"
-    except Exception as e:
-        return None, f"Koneksi upload gagal: {e}"
-
 # --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
 @st.cache_resource
 def get_google_sheet():
@@ -96,28 +78,6 @@ def load_nota_data():
         pass
 
     return data_produk, cfg_toko
-
-def simpan_pengaturan(kunci, nilai):
-    db = get_google_sheet()
-    try:
-        ws_cfg = db.worksheet("Pengaturan")
-    except gspread.WorksheetNotFound:
-        ws_cfg = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
-        ws_cfg.append_row(["Kunci", "Nilai"])
-
-    all_vals = ws_cfg.get_all_values()
-    for idx, row in enumerate(all_vals, start=1):
-        if len(row) > 0 and str(row[0]).strip() == kunci:
-            if nilai == "":
-                try:
-                    ws_cfg.batch_clear([f"B{idx}"])
-                except Exception:
-                    ws_cfg.update_cell(idx, 2, "")
-            else:
-                ws_cfg.update_cell(idx, 2, nilai)
-            return
-    if nilai != "":
-        ws_cfg.append_row([kunci, nilai])
 
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA DI-SCAN ---
 if "cek" in st.query_params:
@@ -208,7 +168,7 @@ except Exception as e:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI RENDER NOTA PINK ESTETIK DENGAN LOGO ---
+# --- 6. FUNGSI RENDER NOTA PINK ESTETIK DENGAN LOGO & KOLOM PROPORSIONAL ---
 def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
@@ -370,24 +330,38 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
             }
             table th, table td {
                 border: 1.5px solid var(--pink-border);
-                padding: 8px 5px;
+                padding: 8px 6px;
                 font-weight: 600;
+                vertical-align: middle;
             }
             table th {
                 background-color: var(--pink-light);
-                font-size: 12px;
+                font-size: 11.5px;
                 color: var(--pink-main);
                 white-space: nowrap;
             }
             table td { color: var(--text-dark); font-size: 12.5px; }
-            .col-qty { width: 74px; white-space: nowrap; }
-            .col-nama { width: 142px; text-align: left; word-break: break-word; }
-            .col-hrg { width: 88px; text-align: right; white-space: nowrap; }
-            .col-jml { width: 96px; text-align: right; white-space: nowrap; }
+            .col-qty { width: 70px; white-space: nowrap; }
+            .col-nama { width: 132px; text-align: left; word-break: break-word; }
+            .col-hrg { width: 90px; text-align: right; white-space: nowrap; }
+            .col-jml { width: 108px; text-align: right; white-space: nowrap; }
             .align-right { text-align: right; white-space: nowrap; }
             .align-left { text-align: left; }
-            .grand-total { font-family: 'Dancing Script', cursive; font-size: 27px; color: var(--pink-main); background-color: var(--pink-light); }
-            .grand-total-val { font-size: 17px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; white-space: nowrap; }
+            .grand-total {
+                font-family: 'Dancing Script', cursive;
+                font-size: 26px;
+                color: var(--pink-main);
+                background-color: var(--pink-light);
+                padding: 6px 8px;
+            }
+            .grand-total-val {
+                font-size: 14.5px;
+                color: var(--pink-main);
+                background-color: var(--pink-light);
+                font-weight: 700;
+                white-space: nowrap;
+                padding: 8px 6px;
+            }
             .footer-area {
                 display: flex;
                 align-items: center;
@@ -474,9 +448,9 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                             <thead>
                                 <tr>
                                     <th class="col-qty">Banyaknya</th>
-                                    <th style="width:142px;">Nama Barang</th>
-                                    <th style="width:88px;">Harga</th>
-                                    <th style="width:96px;">Jumlah</th>
+                                    <th style="width:132px;">Nama Barang</th>
+                                    <th style="width:90px;">Harga</th>
+                                    <th style="width:108px;">Jumlah</th>
                                 </tr>
                             </thead>
                             <tbody id="out-items"></tbody>
@@ -579,7 +553,12 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
             const totalAkhir = subtotal - data.diskon + data.ongkir;
             document.getElementById('out-subtotal').innerText = 'Rp ' + formatRp(subtotal);
             document.getElementById('out-ongkir').innerText = 'Rp ' + formatRp(data.ongkir);
-            document.getElementById('out-total').innerText = 'Rp ' + formatRp(totalAkhir);
+
+            const elTotal = document.getElementById('out-total');
+            elTotal.innerText = 'Rp ' + formatRp(totalAkhir);
+            if (totalAkhir >= 10000000) {
+                elTotal.style.fontSize = '13px';
+            }
 
             function fitNotaToScreen() {
                 const vp = document.getElementById('nota-viewport');
@@ -634,7 +613,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
     final_html = html_template.replace("__DATA_JSON__", json.dumps(data_for_js))
     components.html(final_html, height=iframe_height, scrolling=True)
 
-# --- 7. HEADER, PANEL QRIS & PENGATURAN LOGO ---
+# --- 7. HEADER & PANEL QRIS ---
 col_head1, col_head2 = st.columns([3.5, 1.2])
 with col_head1:
     st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Nota Homedress ByKamila ♡</h3>", unsafe_allow_html=True)
@@ -666,37 +645,6 @@ if qris_bytes or info_bayar_tersimpan:
                 )
         if info_bayar_tersimpan:
             st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
-
-#with st.expander("🖼️ Pengaturan Logo Nota", expanded=(not bool(logo_bytes))):
-   # if logo_bytes:
-  #      c_l1, c_l2, c_l3 = st.columns([1.2, 1.6, 1.2])
-  #      with c_l2:
-   #         st.image(logo_bytes, caption="Logo Aktif di Nota", use_container_width=True)
-   #     if st.button("🗑️ Hapus Logo (Kembali ke Tulisan)", use_container_width=True):
-    #        simpan_pengaturan("logo_url", "")
-     #       load_nota_data.clear()
-      #      ambil_bytes_gambar.clear()
-       #     st.success("✅ Logo dihapus.")
-        #    st.rerun()
-
-    #with st.form("form_upload_logo"):
-     #   logo_file = st.file_uploader("Upload Gambar Logo Toko (Cukup 1 kali saja)", type=["jpg", "jpeg", "png", "webp"])
-      #  simpan_logo_btn = st.form_submit_button("💾 Simpan Logo ke Nota", type="primary", use_container_width=True)
-
-       # if simpan_logo_btn:
-        #    if logo_file is None:
-        #        st.error("Pilih file gambar logo terlebih dahulu.")
-        #    else:
-         #       with st.spinner("Mengunggah & menyimpan logo permanen..."):
-          #          url_logo_baru, err_logo = upload_gambar_imgbb(logo_file)
-           #         if err_logo:
-            #            st.error(err_logo)
-             #       else:
-              #          simpan_pengaturan("logo_url", url_logo_baru)
-               #         load_nota_data.clear()
-                #        ambil_bytes_gambar.clear()
-                 #       st.success("✅ Logo berhasil disimpan! Otomatis muncul di setiap nota.")
-                       # st.rerun()
 
 st.divider()
 
