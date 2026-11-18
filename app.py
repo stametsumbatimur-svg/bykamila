@@ -5,6 +5,7 @@ from google.oauth2.service_account import Credentials
 import datetime
 import json
 import uuid
+import base64
 import requests
 import hashlib
 import urllib.parse
@@ -51,6 +52,24 @@ def ambil_bytes_gambar(url):
         pass
     return None
 
+def upload_gambar_imgbb(uploaded_file):
+    api_key = st.secrets.get("imgbb_api_key", "")
+    if not api_key:
+        return None, "API Key ImgBB belum dipasang di Secrets Streamlit."
+    try:
+        img_b64 = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
+        res = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": api_key, "image": img_b64},
+            timeout=25
+        )
+        hasil = res.json()
+        if hasil.get("success"):
+            return hasil["data"]["url"], None
+        return None, f"Gagal upload gambar: {hasil.get('error', {}).get('message', 'Error tidak diketahui')}"
+    except Exception as e:
+        return None, f"Koneksi upload gagal: {e}"
+
 # --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
 @st.cache_resource
 def get_google_sheet():
@@ -77,6 +96,28 @@ def load_nota_data():
         pass
 
     return data_produk, cfg_toko
+
+def simpan_pengaturan(kunci, nilai):
+    db = get_google_sheet()
+    try:
+        ws_cfg = db.worksheet("Pengaturan")
+    except gspread.WorksheetNotFound:
+        ws_cfg = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
+        ws_cfg.append_row(["Kunci", "Nilai"])
+
+    all_vals = ws_cfg.get_all_values()
+    for idx, row in enumerate(all_vals, start=1):
+        if len(row) > 0 and str(row[0]).strip() == kunci:
+            if nilai == "":
+                try:
+                    ws_cfg.batch_clear([f"B{idx}"])
+                except Exception:
+                    ws_cfg.update_cell(idx, 2, "")
+            else:
+                ws_cfg.update_cell(idx, 2, nilai)
+            return
+    if nilai != "":
+        ws_cfg.append_row([kunci, nilai])
 
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA DI-SCAN ---
 if "cek" in st.query_params:
@@ -154,7 +195,7 @@ if "cek" in st.query_params:
 
     st.stop()
 
-# --- 5. AMBIL DATA PRODUK & QRIS ---
+# --- 5. AMBIL DATA PRODUK, QRIS & LOGO ---
 try:
     data_produk_list, cfg_toko = load_nota_data()
 except Exception as e:
@@ -167,8 +208,8 @@ except Exception as e:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI RENDER NOTA PINK ESTETIK (BANYAKNYA | NAMA BARANG | HARGA | JUMLAH) ---
-def tampilkan_nota_estetik(payload_nota):
+# --- 6. FUNGSI RENDER NOTA PINK ESTETIK DENGAN LOGO ---
+def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
     order_id = payload_nota.get("order_id", "MAN-" + str(uuid.uuid4())[:6].upper())
@@ -186,13 +227,19 @@ def tampilkan_nota_estetik(payload_nota):
     })
     verify_url = f"{base_admin_url}/?{params_qr}"
 
+    logo_data_uri = ""
+    if logo_bytes:
+        b64_logo = base64.b64encode(logo_bytes).decode("utf-8")
+        logo_data_uri = f"data:image/jpeg;base64,{b64_logo}"
+
     data_for_js = dict(payload_nota)
     data_for_js["order_id"] = order_id
     data_for_js["sig_code"] = sig_code
     data_for_js["verify_url"] = verify_url
+    data_for_js["logo_data_uri"] = logo_data_uri
 
     extra_rows = max(0, len(payload_nota["items"]) - 3)
-    iframe_height = 790 + (extra_rows * 38)
+    iframe_height = 820 + (extra_rows * 38)
 
     html_template = """
     <!DOCTYPE html>
@@ -224,12 +271,12 @@ def tampilkan_nota_estetik(payload_nota):
             }
 
             .nota-box {
-                background: white;
+                background: #ffffff;
                 width: 440px;
                 min-width: 440px;
                 max-width: 440px;
                 margin: 0 auto;
-                padding: 24px 20px;
+                padding: 22px 20px 24px;
                 color: var(--pink-main);
                 position: relative;
                 border-radius: 16px;
@@ -245,7 +292,7 @@ def tampilkan_nota_estetik(payload_nota):
             }
             .watermark {
                 position: absolute;
-                top: 46%;
+                top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%) rotate(-24deg);
                 font-size: 25px;
@@ -257,12 +304,43 @@ def tampilkan_nota_estetik(payload_nota):
                 letter-spacing: 3px;
             }
             .content-layer { position: relative; z-index: 1; }
-            .header-nota { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+            .header-nota {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .brand-logo-wrap {
+                width: 158px;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .brand-logo-wrap img {
+                width: 155px;
+                height: auto;
+                max-height: 145px;
+                object-fit: contain;
+                display: block;
+            }
             .brand h1 { font-family: 'Dancing Script', cursive; font-size: 42px; line-height: 0.9; white-space: nowrap; }
             .brand p { font-family: 'Dancing Script', cursive; font-size: 22px; text-align: center; white-space: nowrap; }
+            .contact-area {
+                flex: 1;
+                text-align: right;
+            }
             .contact { font-size: 13px; font-weight: 700; text-align: right; color: var(--pink-main); white-space: nowrap; }
             .contact p { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 4px; }
-            .thanks-top { font-family: 'Dancing Script', cursive; font-size: 20px; text-align: center; margin-top: 8px; line-height: 1.15; }
+            .thanks-top {
+                font-family: 'Dancing Script', cursive;
+                font-size: 22px;
+                text-align: right;
+                margin-top: 8px;
+                line-height: 1.15;
+                color: var(--pink-main);
+            }
             .info-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
             .info-box {
                 border: 1.5px solid var(--pink-border);
@@ -272,7 +350,7 @@ def tampilkan_nota_estetik(payload_nota):
                 font-weight: 700;
                 text-align: center;
                 flex: 1;
-                background: rgba(255,255,255,0.9);
+                background: rgba(255,255,255,0.92);
                 overflow: hidden;
             }
             .info-box span {
@@ -288,7 +366,7 @@ def tampilkan_nota_estetik(payload_nota):
                 border-collapse: collapse;
                 margin-bottom: 14px;
                 text-align: center;
-                background: rgba(255,255,255,0.9);
+                background: rgba(255,255,255,0.92);
             }
             table th, table td {
                 border: 1.5px solid var(--pink-border);
@@ -365,11 +443,8 @@ def tampilkan_nota_estetik(payload_nota):
                     <div class="watermark" id="wm-text">LUNAS • BYKAMILA</div>
                     <div class="content-layer">
                         <div class="header-nota">
-                            <div class="brand">
-                                <h1>homedress</h1>
-                                <p>♡ bykamila ♡</p>
-                            </div>
-                            <div>
+                            <div id="brand-container"></div>
+                            <div class="contact-area">
                                 <div class="contact">
                                     <p>
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -452,6 +527,13 @@ def tampilkan_nota_estetik(payload_nota):
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;');
+
+            const brandContainer = document.getElementById('brand-container');
+            if (data.logo_data_uri) {
+                brandContainer.innerHTML = `<div class="brand-logo-wrap"><img src="${data.logo_data_uri}" alt="Logo ByKamila"></div>`;
+            } else {
+                brandContainer.innerHTML = `<div class="brand"><h1>homedress</h1><p>♡ bykamila ♡</p></div>`;
+            }
 
             document.getElementById('out-nama').innerText = data.nama;
             document.getElementById('out-tanggal').innerText = data.tanggal;
@@ -552,19 +634,22 @@ def tampilkan_nota_estetik(payload_nota):
     final_html = html_template.replace("__DATA_JSON__", json.dumps(data_for_js))
     components.html(final_html, height=iframe_height, scrolling=True)
 
-# --- 7. HEADER & PANEL TAMPILAN QRIS ---
+# --- 7. HEADER, PANEL QRIS & PENGATURAN LOGO ---
 col_head1, col_head2 = st.columns([3.5, 1.2])
 with col_head1:
     st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Nota Homedress ByKamila ♡</h3>", unsafe_allow_html=True)
 with col_head2:
-    if st.button("🔄 Refresh", use_container_width=True, help="Perbarui daftar harga produk & QRIS"):
+    if st.button("🔄 Refresh", use_container_width=True, help="Perbarui daftar harga produk, logo & QRIS"):
         load_nota_data.clear()
         ambil_bytes_gambar.clear()
         st.rerun()
 
 qris_tersimpan = cfg_toko.get("qris_url", "").strip()
 info_bayar_tersimpan = cfg_toko.get("info_bayar", "").strip()
+logo_tersimpan = cfg_toko.get("logo_url", "").strip()
+
 qris_bytes = ambil_bytes_gambar(qris_tersimpan) if qris_tersimpan else None
+logo_bytes = ambil_bytes_gambar(logo_tersimpan) if logo_tersimpan else None
 
 if qris_bytes or info_bayar_tersimpan:
     with st.expander("💳 Tampilkan QRIS & Info Pembayaran", expanded=False):
@@ -581,6 +666,37 @@ if qris_bytes or info_bayar_tersimpan:
                 )
         if info_bayar_tersimpan:
             st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
+
+with st.expander("🖼️ Pengaturan Logo Nota", expanded=(not bool(logo_bytes))):
+    if logo_bytes:
+        c_l1, c_l2, c_l3 = st.columns([1.2, 1.6, 1.2])
+        with c_l2:
+            st.image(logo_bytes, caption="Logo Aktif di Nota", use_container_width=True)
+        if st.button("🗑️ Hapus Logo (Kembali ke Tulisan)", use_container_width=True):
+            simpan_pengaturan("logo_url", "")
+            load_nota_data.clear()
+            ambil_bytes_gambar.clear()
+            st.success("✅ Logo dihapus.")
+            st.rerun()
+
+    with st.form("form_upload_logo"):
+        logo_file = st.file_uploader("Upload Gambar Logo Toko (Cukup 1 kali saja)", type=["jpg", "jpeg", "png", "webp"])
+        simpan_logo_btn = st.form_submit_button("💾 Simpan Logo ke Nota", type="primary", use_container_width=True)
+
+        if simpan_logo_btn:
+            if logo_file is None:
+                st.error("Pilih file gambar logo terlebih dahulu.")
+            else:
+                with st.spinner("Mengunggah & menyimpan logo permanen..."):
+                    url_logo_baru, err_logo = upload_gambar_imgbb(logo_file)
+                    if err_logo:
+                        st.error(err_logo)
+                    else:
+                        simpan_pengaturan("logo_url", url_logo_baru)
+                        load_nota_data.clear()
+                        ambil_bytes_gambar.clear()
+                        st.success("✅ Logo berhasil disimpan! Otomatis muncul di setiap nota.")
+                        st.rerun()
 
 st.divider()
 
@@ -671,4 +787,4 @@ if st.button("✨ Buat Nota Sekarang", type="primary", use_container_width=True)
         }
 
 if "nota_manual_preview" in st.session_state and st.session_state.nota_manual_preview:
-    tampilkan_nota_estetik(st.session_state.nota_manual_preview)
+    tampilkan_nota_estetik(st.session_state.nota_manual_preview, logo_bytes=logo_bytes)
