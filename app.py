@@ -167,7 +167,7 @@ except Exception as e:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI RENDER NOTA PINK ESTETIK (PROPORSI TERKUNCI UNTUK SEMUA LAYAR) ---
+# --- 6. FUNGSI RENDER NOTA PINK ESTETIK (BANYAKNYA | NAMA BARANG | HARGA | JUMLAH) ---
 def tampilkan_nota_estetik(payload_nota):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
@@ -292,24 +292,24 @@ def tampilkan_nota_estetik(payload_nota):
             }
             table th, table td {
                 border: 1.5px solid var(--pink-border);
-                padding: 8px 6px;
+                padding: 8px 5px;
                 font-weight: 600;
             }
             table th {
                 background-color: var(--pink-light);
-                font-size: 13px;
+                font-size: 12px;
                 color: var(--pink-main);
                 white-space: nowrap;
             }
-            table td { color: var(--text-dark); font-size: 13px; }
-            .col-no { width: 36px; white-space: nowrap; }
-            .col-nama { width: 174px; text-align: left; word-break: break-word; }
-            .col-jml { width: 76px; white-space: nowrap; }
-            .col-hrg { width: 114px; text-align: right; white-space: nowrap; }
+            table td { color: var(--text-dark); font-size: 12.5px; }
+            .col-qty { width: 74px; white-space: nowrap; }
+            .col-nama { width: 142px; text-align: left; word-break: break-word; }
+            .col-hrg { width: 88px; text-align: right; white-space: nowrap; }
+            .col-jml { width: 96px; text-align: right; white-space: nowrap; }
             .align-right { text-align: right; white-space: nowrap; }
             .align-left { text-align: left; }
-            .grand-total { font-family: 'Dancing Script', cursive; font-size: 28px; color: var(--pink-main); background-color: var(--pink-light); }
-            .grand-total-val { font-size: 19px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; white-space: nowrap; }
+            .grand-total { font-family: 'Dancing Script', cursive; font-size: 27px; color: var(--pink-main); background-color: var(--pink-light); }
+            .grand-total-val { font-size: 17px; color: var(--pink-main); background-color: var(--pink-light); font-weight: 700; white-space: nowrap; }
             .footer-area {
                 display: flex;
                 align-items: center;
@@ -398,10 +398,10 @@ def tampilkan_nota_estetik(payload_nota):
                         <table>
                             <thead>
                                 <tr>
-                                    <th class="col-no">No</th>
-                                    <th style="width:174px;">Nama Barang</th>
-                                    <th class="col-jml">Jumlah</th>
-                                    <th style="width:114px;">Harga</th>
+                                    <th class="col-qty">Banyaknya</th>
+                                    <th style="width:142px;">Nama Barang</th>
+                                    <th style="width:88px;">Harga</th>
+                                    <th style="width:96px;">Jumlah</th>
                                 </tr>
                             </thead>
                             <tbody id="out-items"></tbody>
@@ -478,13 +478,13 @@ def tampilkan_nota_estetik(payload_nota):
                     subtotal += lineTotal;
                     rowsHTML += `
                         <tr>
-                            <td class="col-no">${i + 1}</td>
+                            <td class="col-qty">${it.qty} pcs</td>
                             <td class="col-nama">${escHtml(it.nama)}</td>
-                            <td class="col-jml">${it.qty} pcs</td>
                             <td class="col-hrg">Rp ${formatRp(it.harga)}</td>
+                            <td class="col-jml">Rp ${formatRp(lineTotal)}</td>
                         </tr>`;
                 } else {
-                    rowsHTML += `<tr><td class="col-no">&nbsp;</td><td class="col-nama"></td><td class="col-jml"></td><td class="col-hrg"></td></tr>`;
+                    rowsHTML += `<tr><td class="col-qty">&nbsp;</td><td class="col-nama"></td><td class="col-hrg"></td><td class="col-jml"></td></tr>`;
                 }
             }
             document.getElementById('out-items').innerHTML = rowsHTML;
@@ -623,13 +623,12 @@ for idx_baris, rid in enumerate(list(st.session_state.manual_row_ids)):
             cocok = next((p for p in data_produk_list if str(p["Nama Barang"]) == pilih), None)
             harga_default = int(cocok["Harga"]) if cocok and str(cocok.get("Harga", "")).isdigit() else 0
 
-        # Otomatis isi harga satuan saat produk dipilih dari dropdown, namun tetap bisa diubah manual
         if st.session_state.get(f"last_sel_{rid}") != pilih:
             st.session_state[f"last_sel_{rid}"] = pilih
             st.session_state[f"hrg_m_{rid}"] = harga_default
 
     with col_j:
-        qty_m = st.number_input("Jml", min_value=1, value=1, key=f"qty_m_{rid}")
+        qty_m = st.number_input("Banyaknya", min_value=1, value=1, key=f"qty_m_{rid}")
     with col_h:
         harga_m = st.number_input("Harga Satuan", min_value=0, step=1000, key=f"hrg_m_{rid}")
 
