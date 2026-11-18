@@ -168,8 +168,8 @@ except Exception as e:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI RENDER NOTA PINK ESTETIK DENGAN LOGO & KOLOM PROPORSIONAL ---
-def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
+# --- 6. FUNGSI RENDER NOTA PINK ESTETIK + BACKGROUND & WATERMARK ---
+def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
     order_id = payload_nota.get("order_id", "MAN-" + str(uuid.uuid4())[:6].upper())
@@ -197,9 +197,10 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
     data_for_js["sig_code"] = sig_code
     data_for_js["verify_url"] = verify_url
     data_for_js["logo_data_uri"] = logo_data_uri
+    data_for_js["bg_style"] = bg_style
 
     extra_rows = max(0, len(payload_nota["items"]) - 3)
-    iframe_height = 820 + (extra_rows * 38)
+    iframe_height = 830 + (extra_rows * 38)
 
     html_template = """
     <!DOCTYPE html>
@@ -236,12 +237,23 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 min-width: 440px;
                 max-width: 440px;
                 margin: 0 auto;
-                padding: 22px 20px 24px;
+                padding: 12px 10px 14px;
                 color: var(--pink-main);
                 position: relative;
                 border-radius: 16px;
                 box-shadow: 0 6px 20px rgba(216, 27, 96, 0.12);
                 overflow: hidden;
+            }
+            .nota-box.bg-pastel {
+                background: linear-gradient(180deg, #ffffff 0%, #fff7fa 45%, #ffeef4 100%);
+            }
+            .nota-box.bg-polkadot {
+                background-color: #fff9fb;
+                background-image: radial-gradient(rgba(244, 143, 177, 0.25) 1.5px, transparent 1.5px);
+                background-size: 16px 16px;
+            }
+            .nota-box.bg-clean {
+                background: #ffffff;
             }
             .nota-box::before {
                 content: '';
@@ -249,18 +261,51 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 top: 0; left: 0; right: 0;
                 height: 8px;
                 background: linear-gradient(90deg, #fce4ec, #f48fb1, #d81b60, #f48fb1, #fce4ec);
+                z-index: 3;
             }
-            .watermark {
+            .inner-frame {
+                border: 1.5px solid rgba(244, 143, 177, 0.65);
+                border-radius: 12px;
+                padding: 12px 8.5px 14px;
+                position: relative;
+                overflow: hidden;
+            }
+            /* Watermark Logo Tengah */
+            .wm-logo-center {
                 position: absolute;
-                top: 50%;
+                top: 53%;
                 left: 50%;
-                transform: translate(-50%, -50%) rotate(-24deg);
-                font-size: 25px;
-                font-weight: 700;
-                color: rgba(216, 27, 96, 0.06);
-                white-space: nowrap;
+                transform: translate(-50%, -50%);
+                width: 235px;
+                opacity: 0.09;
                 pointer-events: none;
                 z-index: 0;
+            }
+            .wm-logo-center img {
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+            /* Watermark Teks Diagonal Berulang */
+            .wm-text-wrap {
+                position: absolute;
+                top: 22%;
+                left: -15%;
+                right: -15%;
+                bottom: 12%;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-around;
+                align-items: center;
+                transform: rotate(-22deg);
+                pointer-events: none;
+                z-index: 0;
+            }
+            .wm-line {
+                font-size: 18px;
+                font-weight: 700;
+                color: rgba(216, 27, 96, 0.075);
+                white-space: nowrap;
                 letter-spacing: 3px;
             }
             .content-layer { position: relative; z-index: 1; }
@@ -310,7 +355,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 font-weight: 700;
                 text-align: center;
                 flex: 1;
-                background: rgba(255,255,255,0.92);
+                background: rgba(255, 255, 255, 0.78);
                 overflow: hidden;
             }
             .info-box span {
@@ -326,7 +371,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 border-collapse: collapse;
                 margin-bottom: 14px;
                 text-align: center;
-                background: rgba(255,255,255,0.92);
+                background: rgba(255, 255, 255, 0.72);
             }
             table th, table td {
                 border: 1.5px solid var(--pink-border);
@@ -335,7 +380,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 vertical-align: middle;
             }
             table th {
-                background-color: var(--pink-light);
+                background-color: rgba(252, 228, 236, 0.9);
                 font-size: 11.5px;
                 color: var(--pink-main);
                 white-space: nowrap;
@@ -351,13 +396,13 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 font-family: 'Dancing Script', cursive;
                 font-size: 26px;
                 color: var(--pink-main);
-                background-color: var(--pink-light);
+                background-color: rgba(252, 228, 236, 0.9);
                 padding: 6px 8px;
             }
             .grand-total-val {
                 font-size: 14.5px;
                 color: var(--pink-main);
-                background-color: var(--pink-light);
+                background-color: rgba(252, 228, 236, 0.9);
                 font-weight: 700;
                 white-space: nowrap;
                 padding: 8px 6px;
@@ -367,7 +412,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 align-items: center;
                 justify-content: space-between;
                 gap: 10px;
-                background-color: var(--pink-light);
+                background-color: rgba(252, 228, 236, 0.92);
                 border-radius: 15px;
                 padding: 12px 14px;
                 margin-top: 8px;
@@ -414,73 +459,77 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
         <div id="nota-viewport">
             <div id="nota-scaler">
                 <div class="nota-box" id="nota-area">
-                    <div class="watermark" id="wm-text">LUNAS • BYKAMILA</div>
-                    <div class="content-layer">
-                        <div class="header-nota">
-                            <div id="brand-container"></div>
-                            <div class="contact-area">
-                                <div class="contact">
-                                    <p>
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                                            <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                                            <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                                        </svg>
-                                        bykamila__
-                                    </p>
-                                    <p>
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                                        </svg>
-                                        0895-2608-7445
-                                    </p>
+                    <div class="inner-frame">
+                        <div class="wm-logo-center" id="wm-logo-box"></div>
+                        <div class="wm-text-wrap" id="wm-text-wrap"></div>
+
+                        <div class="content-layer">
+                            <div class="header-nota">
+                                <div id="brand-container"></div>
+                                <div class="contact-area">
+                                    <div class="contact">
+                                        <p>
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                                                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                                                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                                            </svg>
+                                            bykamila__
+                                        </p>
+                                        <p>
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                                            </svg>
+                                            0895-2608-7445
+                                        </p>
+                                    </div>
+                                    <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
                                 </div>
-                                <div class="thanks-top">Terima Kasih<br>Sudah Belanja ♡</div>
                             </div>
-                        </div>
 
-                        <div class="info-row">
-                            <div class="info-box">Nama Customer<span id="out-nama"></span></div>
-                            <div class="info-box">Tanggal Order<span id="out-tanggal"></span></div>
-                        </div>
-
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th class="col-qty">Banyaknya</th>
-                                    <th style="width:132px;">Nama Barang</th>
-                                    <th style="width:90px;">Harga</th>
-                                    <th style="width:108px;">Jumlah</th>
-                                </tr>
-                            </thead>
-                            <tbody id="out-items"></tbody>
-                            <tbody>
-                                <tr>
-                                    <td colspan="3" class="align-left" style="background-color: var(--pink-light);">Subtotal</td>
-                                    <td class="align-right" style="background-color: var(--pink-light);" id="out-subtotal"></td>
-                                </tr>
-                                <tr id="row-diskon" style="display: none;">
-                                    <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
-                                    <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);"></td>
-                                </tr>
-                                <tr>
-                                    <td colspan="3" class="align-left">Ongkir</td>
-                                    <td class="align-right" id="out-ongkir"></td>
-                                </tr>
-                                <tr>
-                                    <td colspan="3" class="grand-total align-left">Total</td>
-                                    <td class="grand-total-val align-right" id="out-total"></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <div class="footer-area">
-                            <div class="footer-text">
-                                <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
-                                <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
-                                <span class="auth-badge" id="out-auth">✔ LUNAS • AUTH: </span>
+                            <div class="info-row">
+                                <div class="info-box">Nama Customer<span id="out-nama"></span></div>
+                                <div class="info-box">Tanggal Order<span id="out-tanggal"></span></div>
                             </div>
-                            <div id="qrcode-box"></div>
+
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th class="col-qty">Banyaknya</th>
+                                        <th style="width:132px;">Nama Barang</th>
+                                        <th style="width:90px;">Harga</th>
+                                        <th style="width:108px;">Jumlah</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="out-items"></tbody>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="3" class="align-left" style="background-color: rgba(252, 228, 236, 0.9);">Subtotal</td>
+                                        <td class="align-right" style="background-color: rgba(252, 228, 236, 0.9);" id="out-subtotal"></td>
+                                    </tr>
+                                    <tr id="row-diskon" style="display: none;">
+                                        <td colspan="3" class="align-left" style="color: var(--pink-main);">Diskon</td>
+                                        <td class="align-right" id="out-val-diskon" style="color: var(--pink-main);"></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="3" class="align-left">Ongkir</td>
+                                        <td class="align-right" id="out-ongkir"></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="3" class="grand-total align-left">Total</td>
+                                        <td class="grand-total-val align-right" id="out-total"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <div class="footer-area">
+                                <div class="footer-text">
+                                    <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
+                                    <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
+                                    <span class="auth-badge" id="out-auth">✔ LUNAS • AUTH: </span>
+                                </div>
+                                <div id="qrcode-box"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -502,16 +551,63 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;');
 
+            // Terapkan gaya background
+            const notaEl = document.getElementById('nota-area');
+            notaEl.classList.add('bg-' + (data.bg_style || 'pastel'));
+
+            // Ubah latar putih logo menjadi transparan agar menyatu dengan background & watermark
+            function makeLogoTransparent(dataUri, callback) {
+                if (!dataUri) { callback(''); return; }
+                const img = new Image();
+                img.onload = function() {
+                    const c = document.createElement('canvas');
+                    c.width = img.width;
+                    c.height = img.height;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, c.width, c.height);
+                    const d = imgData.data;
+                    for (let i = 0; i < d.length; i += 4) {
+                        const r = d[i], g = d[i+1], b = d[i+2];
+                        if (r > 240 && g > 240 && b > 240) {
+                            d[i+3] = 0;
+                        } else if (r > 224 && g > 224 && b > 224) {
+                            const avg = (r + g + b) / 3;
+                            d[i+3] = Math.round(((240 - avg) / 16) * 255);
+                        }
+                    }
+                    ctx.putImageData(imgData, 0, 0);
+                    callback(c.toDataURL('image/png'));
+                };
+                img.onerror = function() { callback(dataUri); };
+                img.src = dataUri;
+            }
+
             const brandContainer = document.getElementById('brand-container');
+            const wmLogoBox = document.getElementById('wm-logo-box');
+
             if (data.logo_data_uri) {
-                brandContainer.innerHTML = `<div class="brand-logo-wrap"><img src="${data.logo_data_uri}" alt="Logo ByKamila"></div>`;
+                brandContainer.innerHTML = `<div class="brand-logo-wrap"><img id="img-brand-logo" src="${data.logo_data_uri}" alt="Logo ByKamila"></div>`;
+                makeLogoTransparent(data.logo_data_uri, (cleanUri) => {
+                    const brandImg = document.getElementById('img-brand-logo');
+                    if (brandImg) brandImg.src = cleanUri;
+                    wmLogoBox.innerHTML = `<img src="${cleanUri}" alt="Watermark ByKamila">`;
+                });
             } else {
                 brandContainer.innerHTML = `<div class="brand"><h1>homedress</h1><p>♡ bykamila ♡</p></div>`;
             }
 
+            // Isi watermark teks diagonal berulang
+            const wmWrap = document.getElementById('wm-text-wrap');
+            const wmString = `LUNAS • ${data.order_id} • BYKAMILA • `;
+            wmWrap.innerHTML = `
+                <div class="wm-line">${wmString.repeat(2)}</div>
+                <div class="wm-line">${wmString.repeat(2)}</div>
+                <div class="wm-line">${wmString.repeat(2)}</div>
+            `;
+
             document.getElementById('out-nama').innerText = data.nama;
             document.getElementById('out-tanggal').innerText = data.tanggal;
-            document.getElementById('wm-text').innerText = `LUNAS • ${data.order_id} • BYKAMILA`;
             document.getElementById('out-auth').innerText = `✔ LUNAS • ${data.order_id} • AUTH: ${data.sig_code}`;
 
             new QRCode(document.getElementById("qrcode-box"), {
@@ -578,7 +674,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None):
 
             window.addEventListener('load', fitNotaToScreen);
             window.addEventListener('resize', fitNotaToScreen);
-            setTimeout(fitNotaToScreen, 150);
+            setTimeout(fitNotaToScreen, 180);
 
             function downloadNotaJPG() {
                 const scaler = document.getElementById('nota-scaler');
@@ -719,6 +815,21 @@ with col_mo:
 with col_md:
     m_diskon = st.number_input("Diskon (Rp)", min_value=0, step=1000, key="m_diskon")
 
+pilihan_bg = st.selectbox(
+    "🎨 Gaya Background & Watermark Nota",
+    [
+        "🌸 Pink Pastel Lembut + Watermark Logo",
+        "🎀 Pola Polkadot Pink + Watermark Logo",
+        "🤍 Putih Bersih + Watermark Logo"
+    ],
+    key="pilih_bg_nota"
+)
+map_bg = {
+    "🌸 Pink Pastel Lembut + Watermark Logo": "pastel",
+    "🎀 Pola Polkadot Pink + Watermark Logo": "polkadot",
+    "🤍 Putih Bersih + Watermark Logo": "clean"
+}
+
 if st.button("✨ Buat Nota Sekarang", type="primary", use_container_width=True):
     if not m_nama.strip() or not items_manual:
         st.error("Isi Nama Customer dan minimal 1 barang terlebih dahulu.")
@@ -735,4 +846,8 @@ if st.button("✨ Buat Nota Sekarang", type="primary", use_container_width=True)
         }
 
 if "nota_manual_preview" in st.session_state and st.session_state.nota_manual_preview:
-    tampilkan_nota_estetik(st.session_state.nota_manual_preview, logo_bytes=logo_bytes)
+    tampilkan_nota_estetik(
+        st.session_state.nota_manual_preview,
+        logo_bytes=logo_bytes,
+        bg_style=map_bg[pilihan_bg]
+    )
