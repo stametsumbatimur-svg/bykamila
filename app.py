@@ -52,6 +52,24 @@ def ambil_bytes_gambar(url):
         pass
     return None
 
+def upload_gambar_imgbb(uploaded_file):
+    api_key = st.secrets.get("imgbb_api_key", "")
+    if not api_key:
+        return None, "API Key ImgBB belum dipasang di Secrets Streamlit."
+    try:
+        img_b64 = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
+        res = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": api_key, "image": img_b64},
+            timeout=25
+        )
+        hasil = res.json()
+        if hasil.get("success"):
+            return hasil["data"]["url"], None
+        return None, f"Gagal upload gambar: {hasil.get('error', {}).get('message', 'Error tidak diketahui')}"
+    except Exception as e:
+        return None, f"Koneksi upload gagal: {e}"
+
 # --- 3. KONEKSI & CACHE DATA GOOGLE SHEETS (HEMAT KUOTA API) ---
 @st.cache_resource
 def get_google_sheet():
@@ -79,6 +97,28 @@ def load_nota_data():
 
     return data_produk, cfg_toko
 
+def simpan_pengaturan(kunci, nilai):
+    db = get_google_sheet()
+    try:
+        ws_cfg = db.worksheet("Pengaturan")
+    except gspread.WorksheetNotFound:
+        ws_cfg = db.add_worksheet(title="Pengaturan", rows=10, cols=2)
+        ws_cfg.append_row(["Kunci", "Nilai"])
+
+    all_vals = ws_cfg.get_all_values()
+    for idx, row in enumerate(all_vals, start=1):
+        if len(row) > 0 and str(row[0]).strip() == kunci:
+            if nilai == "":
+                try:
+                    ws_cfg.batch_clear([f"B{idx}"])
+                except Exception:
+                    ws_cfg.update_cell(idx, 2, "")
+            else:
+                ws_cfg.update_cell(idx, 2, nilai)
+            return
+    if nilai != "":
+        ws_cfg.append_row([kunci, nilai])
+
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA DI-SCAN ---
 if "cek" in st.query_params:
     cek_id = str(st.query_params.get("cek", "")).strip()
@@ -86,7 +126,8 @@ if "cek" in st.query_params:
     cek_nama = str(st.query_params.get("n", "")).strip()
     cek_tot = int(st.query_params.get("t", "0")) if str(st.query_params.get("t", "0")).isdigit() else 0
 
-    st.markdown("<h2 style='text-align: center; color: #d81b60; font-family: cursive;'>♡ Verifikasi Nota ByKamila ♡</h2>", unsafe_allow_html=True)
+    judul_toko = "Foodies ByKamila" if cek_id.startswith("FOD-") else "Homedress ByKamila"
+    st.markdown(f"<h2 style='text-align: center; color: #d81b60; font-family: cursive;'>♡ Verifikasi Nota {judul_toko} ♡</h2>", unsafe_allow_html=True)
 
     expected_sig = buat_signature_nota(cek_id, cek_nama, cek_tot)
     sig_cocok = (cek_sig == expected_sig and cek_tot > 0)
@@ -128,10 +169,10 @@ if "cek" in st.query_params:
                     </div>
                 """, unsafe_allow_html=True)
         else:
-            st.markdown("""
+            st.markdown(f"""
                 <div class='verify-invalid'>
                     <h3 style='margin-top:0;'>❌ NOTA TIDAK VALID / DATA TELAH DIUBAH</h3>
-                    <p>Kode validasi tidak cocok dengan catatan resmi Homedress ByKamila.</p>
+                    <p>Kode validasi tidak cocok dengan catatan resmi {judul_toko}.</p>
                 </div>
             """, unsafe_allow_html=True)
     else:
@@ -139,17 +180,18 @@ if "cek" in st.query_params:
             st.markdown(f"""
                 <div class='verify-valid'>
                     <h3 style='margin-top:0;'>✅ NOTA RESMI TERVERIFIKASI LUNAS</h3>
-                    <p><b>No. Referensi:</b> {cek_id}<br>
+                    <p><b>Toko:</b> {judul_toko}<br>
+                    <b>No. Referensi:</b> {cek_id}<br>
                     <b>Kode Validasi:</b> {cek_sig}<br>
                     <b>Nama Customer:</b> {cek_nama}<br>
                     <b>Total Sah:</b> Rp {cek_tot:,.0f}</p>
                 </div>
             """.replace(",", "."), unsafe_allow_html=True)
         else:
-            st.markdown("""
+            st.markdown(f"""
                 <div class='verify-invalid'>
                     <h3 style='margin-top:0;'>❌ NOTA TIDAK VALID / DATA TELAH DIUBAH</h3>
-                    <p>Kode validasi tidak cocok dengan tanda tangan digital resmi ByKamila.</p>
+                    <p>Kode validasi tidak cocok dengan tanda tangan digital resmi {judul_toko}.</p>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -168,11 +210,12 @@ except Exception as e:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI RENDER NOTA PINK ESTETIK + BACKGROUND & WATERMARK ---
-def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
+# --- 6. FUNGSI RENDER NOTA (SATU TEMA PINK PASTEL + WATERMARK LOGO & ID) ---
+def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
-    order_id = payload_nota.get("order_id", "MAN-" + str(uuid.uuid4())[:6].upper())
+    default_prefix = "FOD-" if brand_type == "foodies" else "MAN-"
+    order_id = payload_nota.get("order_id", default_prefix + str(uuid.uuid4())[:6].upper())
     sig_code = buat_signature_nota(order_id, payload_nota["nama"], total_akhir_calc)
 
     base_admin_url = cfg_toko.get("admin_url", "").strip().rstrip("/")
@@ -197,7 +240,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
     data_for_js["sig_code"] = sig_code
     data_for_js["verify_url"] = verify_url
     data_for_js["logo_data_uri"] = logo_data_uri
-    data_for_js["bg_style"] = bg_style
+    data_for_js["brand_type"] = brand_type
 
     extra_rows = max(0, len(payload_nota["items"]) - 3)
     iframe_height = 830 + (extra_rows * 38)
@@ -232,7 +275,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
             }
 
             .nota-box {
-                background: #ffffff;
+                background: linear-gradient(180deg, #ffffff 0%, #fff7fa 45%, #ffeef4 100%);
                 width: 440px;
                 min-width: 440px;
                 max-width: 440px;
@@ -243,17 +286,6 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 border-radius: 16px;
                 box-shadow: 0 6px 20px rgba(216, 27, 96, 0.12);
                 overflow: hidden;
-            }
-            .nota-box.bg-pastel {
-                background: linear-gradient(180deg, #ffffff 0%, #fff7fa 45%, #ffeef4 100%);
-            }
-            .nota-box.bg-polkadot {
-                background-color: #fff9fb;
-                background-image: radial-gradient(rgba(244, 143, 177, 0.28) 1.5px, transparent 1.5px);
-                background-size: 16px 16px;
-            }
-            .nota-box.bg-clean {
-                background: #ffffff;
             }
             .nota-box::before {
                 content: '';
@@ -270,14 +302,13 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 position: relative;
                 overflow: hidden;
             }
-            /* Watermark Logo Tengah (Diperjelas) */
             .wm-logo-center {
                 position: absolute;
                 top: 52%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                width: 245px;
-                opacity: 0.17;
+                width: 240px;
+                opacity: 0.16;
                 pointer-events: none;
                 z-index: 0;
             }
@@ -286,7 +317,6 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 height: auto;
                 display: block;
             }
-            /* Watermark Teks Diagonal Berulang dengan ID Nota (Diperjelas) */
             .wm-text-wrap {
                 position: absolute;
                 top: 18%;
@@ -302,11 +332,11 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 z-index: 0;
             }
             .wm-line {
-                font-size: 17px;
+                font-size: 16.5px;
                 font-weight: 700;
-                color: rgba(216, 27, 96, 0.16);
+                color: rgba(216, 27, 96, 0.15);
                 white-space: nowrap;
-                letter-spacing: 2.5px;
+                letter-spacing: 2.2px;
             }
             .content-layer { position: relative; z-index: 1; }
             .header-nota {
@@ -324,9 +354,9 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 justify-content: center;
             }
             .brand-logo-wrap img {
-                width: 155px;
+                width: 154px;
                 height: auto;
-                max-height: 145px;
+                max-height: 146px;
                 object-fit: contain;
                 display: block;
             }
@@ -467,25 +497,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                         <div class="content-layer">
                             <div class="header-nota">
                                 <div id="brand-container"></div>
-                                <div class="contact-area">
-                                    <div class="contact">
-                                        <p>
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                                                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                                                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                                            </svg>
-                                            bykamila__
-                                        </p>
-                                        <p>
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                                            </svg>
-                                            0895-2608-7445
-                                        </p>
-                                    </div>
-                                    <div class="tagline-top">Nyaman &amp; Cantik<br>di Rumah ♡</div>
-                                </div>
+                                <div class="contact-area" id="contact-container"></div>
                             </div>
 
                             <div class="info-row">
@@ -497,7 +509,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                                 <thead>
                                     <tr>
                                         <th class="col-qty">Banyaknya</th>
-                                        <th style="width:132px;">Nama Barang</th>
+                                        <th style="width:132px;" id="th-nama-item">Nama Barang</th>
                                         <th style="width:90px;">Harga</th>
                                         <th style="width:108px;">Jumlah</th>
                                     </tr>
@@ -526,7 +538,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                             <div class="footer-area">
                                 <div class="footer-text">
                                     <span style="font-family: 'Dancing Script', cursive; font-size: 22px; color: var(--pink-main);">♡ Terima kasih sudah order ♡</span><br>
-                                    <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);">Semoga suka dengan produknya di Homedress bykamila</span><br>
+                                    <span style="font-size: 11px; font-weight: 600; color: var(--text-dark);" id="out-footer-sub"></span><br>
                                     <span class="lunas-badge">✔ LUNAS</span>
                                 </div>
                                 <div id="qrcode-box"></div>
@@ -545,6 +557,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
 
         <script>
             const data = __DATA_JSON__;
+            const isFoodies = (data.brand_type === 'foodies');
             const formatRp = (n) => new Intl.NumberFormat('id-ID').format(n);
             const escHtml = (str) => String(str)
                 .replace(/&/g, '&amp;')
@@ -552,29 +565,59 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;');
 
-            const notaEl = document.getElementById('nota-area');
-            notaEl.classList.add('bg-' + (data.bg_style || 'pastel'));
-
-            function makeLogoTransparent(dataUri, callback) {
+            // Hapus latar putih di bagian luar logo saja (menjaga warna putih di dalam gambar tetap utuh)
+            function cleanLogoOuterBg(dataUri, callback) {
                 if (!dataUri) { callback(''); return; }
                 const img = new Image();
                 img.onload = function() {
-                    const c = document.createElement('canvas');
-                    c.width = img.width;
-                    c.height = img.height;
-                    const ctx = c.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-                    const imgData = ctx.getImageData(0, 0, c.width, c.height);
-                    const d = imgData.data;
-                    for (let i = 0; i < d.length; i += 4) {
-                        const r = d[i], g = d[i+1], b = d[i+2];
-                        if (r > 240 && g > 240 && b > 240) {
-                            d[i+3] = 0;
-                        } else if (r > 224 && g > 224 && b > 224) {
-                            const avg = (r + g + b) / 3;
-                            d[i+3] = Math.round(((240 - avg) / 16) * 255);
-                        }
+                    const maxDim = 420;
+                    let w = img.width, h = img.height;
+                    if (w > maxDim || h > maxDim) {
+                        if (w >= h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                        else { w = Math.round(w * maxDim / h); h = maxDim; }
                     }
+                    const c = document.createElement('canvas');
+                    c.width = w;
+                    c.height = h;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const imgData = ctx.getImageData(0, 0, w, h);
+                    const d = imgData.data;
+                    const total = w * h;
+                    const visited = new Uint8Array(total);
+                    const queue = new Int32Array(total);
+                    let head = 0, tail = 0;
+
+                    const isNearWhite = (idx) => {
+                        const p = idx * 4;
+                        return d[p] > 232 && d[p+1] > 232 && d[p+2] > 232;
+                    };
+
+                    for (let x = 0; x < w; x++) {
+                        const top = x;
+                        const bot = (h - 1) * w + x;
+                        if (!visited[top] && isNearWhite(top)) { visited[top] = 1; queue[tail++] = top; }
+                        if (!visited[bot] && isNearWhite(bot)) { visited[bot] = 1; queue[tail++] = bot; }
+                    }
+                    for (let y = 0; y < h; y++) {
+                        const left = y * w;
+                        const right = y * w + (w - 1);
+                        if (!visited[left] && isNearWhite(left)) { visited[left] = 1; queue[tail++] = left; }
+                        if (!visited[right] && isNearWhite(right)) { visited[right] = 1; queue[tail++] = right; }
+                    }
+
+                    while (head < tail) {
+                        const curr = queue[head++];
+                        d[curr * 4 + 3] = 0;
+                        const cx = curr % w;
+                        const cy = (curr - cx) / w;
+
+                        if (cx > 0) { const n = curr - 1; if (!visited[n] && isNearWhite(n)) { visited[n] = 1; queue[tail++] = n; } }
+                        if (cx < w - 1) { const n = curr + 1; if (!visited[n] && isNearWhite(n)) { visited[n] = 1; queue[tail++] = n; } }
+                        if (cy > 0) { const n = curr - w; if (!visited[n] && isNearWhite(n)) { visited[n] = 1; queue[tail++] = n; } }
+                        if (cy < h - 1) { const n = curr + w; if (!visited[n] && isNearWhite(n)) { visited[n] = 1; queue[tail++] = n; } }
+                    }
+
                     ctx.putImageData(imgData, 0, 0);
                     callback(c.toDataURL('image/png'));
                 };
@@ -584,21 +627,72 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
 
             const brandContainer = document.getElementById('brand-container');
             const wmLogoBox = document.getElementById('wm-logo-box');
+            const contactContainer = document.getElementById('contact-container');
 
-            if (data.logo_data_uri) {
-                brandContainer.innerHTML = `<div class="brand-logo-wrap"><img id="img-brand-logo" src="${data.logo_data_uri}" alt="Logo ByKamila"></div>`;
-                makeLogoTransparent(data.logo_data_uri, (cleanUri) => {
-                    const brandImg = document.getElementById('img-brand-logo');
-                    if (brandImg) brandImg.src = cleanUri;
-                    wmLogoBox.innerHTML = `<img src="${cleanUri}" alt="Watermark ByKamila">`;
-                });
+            if (isFoodies) {
+                if (data.logo_data_uri) {
+                    brandContainer.innerHTML = `<div class="brand-logo-wrap"><img id="img-brand-logo" src="${data.logo_data_uri}" alt="Logo Foodies ByKamila"></div>`;
+                    cleanLogoOuterBg(data.logo_data_uri, (cleanUri) => {
+                        const brandImg = document.getElementById('img-brand-logo');
+                        if (brandImg) brandImg.src = cleanUri;
+                        wmLogoBox.innerHTML = `<img src="${cleanUri}" alt="Watermark Foodies ByKamila">`;
+                    });
+                } else {
+                    brandContainer.innerHTML = `<div class="brand"><h1>foodies</h1><p>♡ bykamila ♡</p></div>`;
+                }
+
+                contactContainer.innerHTML = `
+                    <div class="contact">
+                        <p>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                            </svg>
+                            0812-8886-0421
+                        </p>
+                    </div>
+                    <div class="tagline-top">Fresh &amp; Homemade<br>Setiap Hari ♡</div>
+                `;
+                document.getElementById('th-nama-item').innerText = 'Nama Menu';
+                document.getElementById('out-footer-sub').innerText = 'Semoga suka dengan makanannya di Foodies bykamila';
             } else {
-                brandContainer.innerHTML = `<div class="brand"><h1>homedress</h1><p>♡ bykamila ♡</p></div>`;
+                if (data.logo_data_uri) {
+                    brandContainer.innerHTML = `<div class="brand-logo-wrap"><img id="img-brand-logo" src="${data.logo_data_uri}" alt="Logo Homedress ByKamila"></div>`;
+                    cleanLogoOuterBg(data.logo_data_uri, (cleanUri) => {
+                        const brandImg = document.getElementById('img-brand-logo');
+                        if (brandImg) brandImg.src = cleanUri;
+                        wmLogoBox.innerHTML = `<img src="${cleanUri}" alt="Watermark Homedress ByKamila">`;
+                    });
+                } else {
+                    brandContainer.innerHTML = `<div class="brand"><h1>homedress</h1><p>♡ bykamila ♡</p></div>`;
+                }
+
+                contactContainer.innerHTML = `
+                    <div class="contact">
+                        <p>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                            </svg>
+                            bykamila__
+                        </p>
+                        <p>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                            </svg>
+                            0895-2608-7445
+                        </p>
+                    </div>
+                    <div class="tagline-top">Nyaman &amp; Cantik<br>di Rumah ♡</div>
+                `;
+                document.getElementById('th-nama-item').innerText = 'Nama Barang';
+                document.getElementById('out-footer-sub').innerText = 'Semoga suka dengan produknya di Homedress bykamila';
             }
 
             // Watermark teks diagonal tetap memuat ID Nota
             const wmWrap = document.getElementById('wm-text-wrap');
-            const wmString = `LUNAS • ${data.order_id} • BYKAMILA • `;
+            const wmBrandLabel = isFoodies ? 'FOODIES BYKAMILA' : 'BYKAMILA';
+            const wmString = `LUNAS • ${data.order_id} • ${wmBrandLabel} • `;
             wmWrap.innerHTML = `
                 <div class="wm-line">${wmString.repeat(2)}</div>
                 <div class="wm-line">${wmString.repeat(2)}</div>
@@ -625,11 +719,12 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
             for (let i = 0; i < minRows; i++) {
                 if (i < data.items.length) {
                     const it = data.items[i];
+                    const unitLabel = it.unit || 'pcs';
                     const lineTotal = it.qty * it.harga;
                     subtotal += lineTotal;
                     rowsHTML += `
                         <tr>
-                            <td class="col-qty">${it.qty} pcs</td>
+                            <td class="col-qty">${it.qty} ${escHtml(unitLabel)}</td>
                             <td class="col-nama">${escHtml(it.nama)}</td>
                             <td class="col-hrg">Rp ${formatRp(it.harga)}</td>
                             <td class="col-jml">Rp ${formatRp(lineTotal)}</td>
@@ -692,8 +787,9 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
                     document.getElementById('img-hasil').src = url;
                     document.getElementById('jpg-preview-area').style.display = 'block';
 
+                    const filePrefix = isFoodies ? 'Nota_Foodies' : 'Nota_Homedress';
                     const a = document.createElement('a');
-                    a.download = `Nota_${data.nama}.jpg`;
+                    a.download = `${filePrefix}_${data.nama}.jpg`;
                     a.href = url;
                     a.click();
                 }).catch(() => {
@@ -711,7 +807,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, bg_style="pastel"):
 # --- 7. HEADER & PANEL QRIS ---
 col_head1, col_head2 = st.columns([3.5, 1.2])
 with col_head1:
-    st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Nota Homedress ByKamila ♡</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Generator Nota ByKamila ♡</h3>", unsafe_allow_html=True)
 with col_head2:
     if st.button("🔄 Refresh", use_container_width=True, help="Perbarui daftar harga produk, logo & QRIS"):
         load_nota_data.clear()
@@ -720,133 +816,240 @@ with col_head2:
 
 qris_tersimpan = cfg_toko.get("qris_url", "").strip()
 info_bayar_tersimpan = cfg_toko.get("info_bayar", "").strip()
-logo_tersimpan = cfg_toko.get("logo_url", "").strip()
+logo_homedress_url = cfg_toko.get("logo_url", "").strip()
+logo_foodies_url = cfg_toko.get("logo_foodies_url", "").strip()
 
 qris_bytes = ambil_bytes_gambar(qris_tersimpan) if qris_tersimpan else None
-logo_bytes = ambil_bytes_gambar(logo_tersimpan) if logo_tersimpan else None
+logo_homedress_bytes = ambil_bytes_gambar(logo_homedress_url) if logo_homedress_url else None
+logo_foodies_bytes = ambil_bytes_gambar(logo_foodies_url) if logo_foodies_url else None
 
 if qris_bytes or info_bayar_tersimpan:
     with st.expander("💳 Tampilkan QRIS & Info Pembayaran", expanded=False):
         if qris_bytes:
             c_q1, c_q2, c_q3 = st.columns([1, 2.2, 1])
             with c_q2:
-                st.image(qris_bytes, caption="QRIS Homedress ByKamila", use_container_width=True)
+                st.image(qris_bytes, caption="QRIS ByKamila", use_container_width=True)
                 st.download_button(
                     label="📥 Download Gambar QRIS (JPG)",
                     data=qris_bytes,
-                    file_name="QRIS_Homedress_ByKamila.jpg",
+                    file_name="QRIS_ByKamila.jpg",
                     mime="image/jpeg",
                     use_container_width=True
                 )
         if info_bayar_tersimpan:
             st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
 
-st.divider()
+# --- 8. TAB PILIHAN NOTA: HOMEDRESS VS FOODIES ---
+tab_hd, tab_fd = st.tabs(["👗 Nota Homedress", "🍽️ Nota Foodies"])
 
-# --- 8. FORM PEMBUATAN NOTA ---
-st.subheader("🧾 Buat Nota Penjualan")
-daftar_nama_prod = ["-- Ketik Manual --"] + [str(p["Nama Barang"]) for p in data_produk_list if str(p.get("Nama Barang", "")).strip()]
+# ==============================================================================
+# TAB 1: NOTA HOMEDRESS BYKAMILA
+# ==============================================================================
+with tab_hd:
+    st.subheader("🧾 Buat Nota Homedress ByKamila")
+    daftar_nama_prod = ["-- Ketik Manual --"] + [str(p["Nama Barang"]) for p in data_produk_list if str(p.get("Nama Barang", "")).strip()]
 
-c_m1, c_m2 = st.columns(2)
-with c_m1:
-    m_nama = st.text_input("Nama Customer", placeholder="Contoh: Bude Heni", key="m_nama")
-with c_m2:
-    m_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="m_tgl")
+    c_m1, c_m2 = st.columns(2)
+    with c_m1:
+        m_nama = st.text_input("Nama Customer", placeholder="Contoh: Bude Heni", key="hd_nama")
+    with c_m2:
+        m_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="hd_tgl")
 
-if "manual_row_ids" not in st.session_state or not st.session_state.manual_row_ids:
-    st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
+    if "hd_row_ids" not in st.session_state or not st.session_state.hd_row_ids:
+        st.session_state.hd_row_ids = [str(uuid.uuid4())[:6]]
 
-items_manual = []
-jumlah_baris_aktif = len(st.session_state.manual_row_ids)
+    items_hd = []
+    jumlah_baris_hd = len(st.session_state.hd_row_ids)
 
-for idx_baris, rid in enumerate(list(st.session_state.manual_row_ids)):
-    c_lbl, c_del = st.columns([3.5, 1])
-    with c_lbl:
-        st.markdown(f"**Barang #{idx_baris + 1}**")
-    with c_del:
-        if jumlah_baris_aktif > 1:
-            if st.button("🗑️ Hapus", key=f"del_row_{rid}", use_container_width=True):
-                st.session_state.manual_row_ids.remove(rid)
-                for prefix in ("sel_m_", "last_sel_", "txt_m_", "qty_m_", "hrg_m_"):
+    for idx_baris, rid in enumerate(list(st.session_state.hd_row_ids)):
+        c_lbl, c_del = st.columns([3.5, 1])
+        with c_lbl:
+            st.markdown(f"**Barang #{idx_baris + 1}**")
+        with c_del:
+            if jumlah_baris_hd > 1:
+                if st.button("🗑️ Hapus", key=f"hd_del_{rid}", use_container_width=True):
+                    st.session_state.hd_row_ids.remove(rid)
+                    for prefix in ("hd_sel_", "hd_last_", "hd_txt_", "hd_qty_", "hd_hrg_"):
+                        st.session_state.pop(f"{prefix}{rid}", None)
+                    st.rerun()
+
+        col_p, col_j, col_h = st.columns([2.2, 0.9, 1.3])
+        with col_p:
+            pilih = st.selectbox("Pilih Katalog", daftar_nama_prod, key=f"hd_sel_{rid}", label_visibility="collapsed")
+            if pilih == "-- Ketik Manual --":
+                nama_item_m = st.text_input("Nama Barang", placeholder="Ketik nama barang...", key=f"hd_txt_{rid}", label_visibility="collapsed")
+                harga_default = 0
+            else:
+                nama_item_m = pilih
+                cocok = next((p for p in data_produk_list if str(p["Nama Barang"]) == pilih), None)
+                harga_default = int(cocok["Harga"]) if cocok and str(cocok.get("Harga", "")).isdigit() else 0
+
+            if st.session_state.get(f"hd_last_{rid}") != pilih:
+                st.session_state[f"hd_last_{rid}"] = pilih
+                st.session_state[f"hd_hrg_{rid}"] = harga_default
+
+        with col_j:
+            qty_m = st.number_input("Banyaknya", min_value=1, value=1, key=f"hd_qty_{rid}")
+        with col_h:
+            harga_m = st.number_input("Harga Satuan", min_value=0, step=1000, key=f"hd_hrg_{rid}")
+
+        if nama_item_m.strip() and harga_m > 0:
+            items_hd.append({"nama": nama_item_m.strip(), "qty": int(qty_m), "unit": "pcs", "harga": int(harga_m)})
+
+    c_add_btn, c_rst_btn = st.columns([2.5, 1.2])
+    with c_add_btn:
+        if st.button("+ Tambah Baris Barang", key="hd_add_row", use_container_width=True):
+            st.session_state.hd_row_ids.append(str(uuid.uuid4())[:6])
+            st.rerun()
+    with c_rst_btn:
+        if st.button("🧹 Reset Semua", key="hd_rst_all", use_container_width=True):
+            for rid in st.session_state.hd_row_ids:
+                for prefix in ("hd_sel_", "hd_last_", "hd_txt_", "hd_qty_", "hd_hrg_"):
                     st.session_state.pop(f"{prefix}{rid}", None)
-                st.rerun()
+            st.session_state.hd_row_ids = [str(uuid.uuid4())[:6]]
+            st.session_state.hd_nota_preview = None
+            st.rerun()
 
-    col_p, col_j, col_h = st.columns([2.2, 0.9, 1.3])
-    with col_p:
-        pilih = st.selectbox("Pilih Katalog", daftar_nama_prod, key=f"sel_m_{rid}", label_visibility="collapsed")
-        if pilih == "-- Ketik Manual --":
-            nama_item_m = st.text_input("Nama Barang", placeholder="Ketik nama barang...", key=f"txt_m_{rid}", label_visibility="collapsed")
-            harga_default = 0
+    col_mo, col_md = st.columns(2)
+    with col_mo:
+        m_ongkir = st.number_input("Ongkir (Rp)", min_value=0, step=1000, key="hd_ongkir")
+    with col_md:
+        m_diskon = st.number_input("Diskon (Rp)", min_value=0, step=1000, key="hd_diskon")
+
+    if st.button("✨ Buat Nota Homedress", type="primary", key="hd_submit", use_container_width=True):
+        if not m_nama.strip() or not items_hd:
+            st.error("Isi Nama Customer dan minimal 1 barang terlebih dahulu.")
         else:
-            nama_item_m = pilih
-            cocok = next((p for p in data_produk_list if str(p["Nama Barang"]) == pilih), None)
-            harga_default = int(cocok["Harga"]) if cocok and str(cocok.get("Harga", "")).isdigit() else 0
+            bulan_id = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+            tgl_fmt = f"{m_tgl.day} {bulan_id[m_tgl.month - 1]} {m_tgl.year}"
+            st.session_state.hd_nota_preview = {
+                "order_id": "MAN-" + str(uuid.uuid4())[:6].upper(),
+                "nama": m_nama.strip(),
+                "tanggal": tgl_fmt,
+                "items": items_hd,
+                "ongkir": int(m_ongkir),
+                "diskon": int(m_diskon)
+            }
 
-        if st.session_state.get(f"last_sel_{rid}") != pilih:
-            st.session_state[f"last_sel_{rid}"] = pilih
-            st.session_state[f"hrg_m_{rid}"] = harga_default
+    if "hd_nota_preview" in st.session_state and st.session_state.hd_nota_preview:
+        tampilkan_nota_estetik(
+            st.session_state.hd_nota_preview,
+            logo_bytes=logo_homedress_bytes,
+            brand_type="homedress"
+        )
 
-    with col_j:
-        qty_m = st.number_input("Banyaknya", min_value=1, value=1, key=f"qty_m_{rid}")
-    with col_h:
-        harga_m = st.number_input("Harga Satuan", min_value=0, step=1000, key=f"hrg_m_{rid}")
+# ==============================================================================
+# TAB 2: NOTA MANUAL FOODIES BYKAMILA
+# ==============================================================================
+with tab_fd:
+    # Panel upload logo otomatis tampil hanya jika logo Foodies belum pernah disimpan
+    if not logo_foodies_bytes:
+        with st.expander("🖼️ Upload Logo Foodies ByKamila (Cukup 1 kali saja)", expanded=True):
+            with st.form("form_upload_logo_foodies"):
+                fd_logo_file = st.file_uploader(
+                    "Pilih Gambar Logo Foodies ByKamila",
+                    type=["jpg", "jpeg", "png", "webp"],
+                    key="fd_logo_uploader"
+                )
+                simpan_fd_logo = st.form_submit_button("💾 Simpan Logo Foodies", type="primary", use_container_width=True)
 
-    if nama_item_m.strip() and harga_m > 0:
-        items_manual.append({"nama": nama_item_m.strip(), "qty": int(qty_m), "harga": int(harga_m)})
+                if simpan_fd_logo:
+                    if fd_logo_file is None:
+                        st.error("Pilih file gambar logo Foodies terlebih dahulu.")
+                    else:
+                        with st.spinner("Mengunggah & menyimpan logo Foodies permanen..."):
+                            url_fd_baru, err_fd = upload_gambar_imgbb(fd_logo_file)
+                            if err_fd:
+                                st.error(err_fd)
+                            else:
+                                simpan_pengaturan("logo_foodies_url", url_fd_baru)
+                                load_nota_data.clear()
+                                ambil_bytes_gambar.clear()
+                                st.success("✅ Logo Foodies berhasil disimpan!")
+                                st.rerun()
 
-c_add_btn, c_rst_btn = st.columns([2.5, 1.2])
-with c_add_btn:
-    if st.button("+ Tambah Baris Barang", use_container_width=True):
-        st.session_state.manual_row_ids.append(str(uuid.uuid4())[:6])
-        st.rerun()
-with c_rst_btn:
-    if st.button("🧹 Reset Semua", use_container_width=True):
-        for rid in st.session_state.manual_row_ids:
-            for prefix in ("sel_m_", "last_sel_", "txt_m_", "qty_m_", "hrg_m_"):
-                st.session_state.pop(f"{prefix}{rid}", None)
-        st.session_state.manual_row_ids = [str(uuid.uuid4())[:6]]
-        st.session_state.nota_manual_preview = None
-        st.rerun()
+    st.subheader("🧾 Buat Nota Foodies ByKamila")
 
-col_mo, col_md = st.columns(2)
-with col_mo:
-    m_ongkir = st.number_input("Ongkir (Rp)", min_value=0, step=1000, key="m_ongkir")
-with col_md:
-    m_diskon = st.number_input("Diskon (Rp)", min_value=0, step=1000, key="m_diskon")
+    c_f1, c_f2 = st.columns(2)
+    with c_f1:
+        f_nama = st.text_input("Nama Customer", placeholder="Contoh: Kak Rina", key="fd_nama")
+    with c_f2:
+        f_tgl = st.date_input("Tanggal Order", value=datetime.date.today(), key="fd_tgl")
 
-pilihan_bg = st.selectbox(
-    "🎨 Gaya Background & Watermark Nota",
-    [
-        "🌸 Pink Pastel Lembut + Watermark Logo",
-        "🎀 Pola Polkadot Pink + Watermark Logo",
-        "🤍 Putih Bersih + Watermark Logo"
-    ],
-    key="pilih_bg_nota"
-)
-map_bg = {
-    "🌸 Pink Pastel Lembut + Watermark Logo": "pastel",
-    "🎀 Pola Polkadot Pink + Watermark Logo": "polkadot",
-    "🤍 Putih Bersih + Watermark Logo": "clean"
-}
+    if "fd_row_ids" not in st.session_state or not st.session_state.fd_row_ids:
+        st.session_state.fd_row_ids = [str(uuid.uuid4())[:6]]
 
-if st.button("✨ Buat Nota Sekarang", type="primary", use_container_width=True):
-    if not m_nama.strip() or not items_manual:
-        st.error("Isi Nama Customer dan minimal 1 barang terlebih dahulu.")
-    else:
-        bulan_id = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-        tgl_fmt = f"{m_tgl.day} {bulan_id[m_tgl.month - 1]} {m_tgl.year}"
-        st.session_state.nota_manual_preview = {
-            "order_id": "MAN-" + str(uuid.uuid4())[:6].upper(),
-            "nama": m_nama.strip(),
-            "tanggal": tgl_fmt,
-            "items": items_manual,
-            "ongkir": int(m_ongkir),
-            "diskon": int(m_diskon)
-        }
+    items_fd = []
+    jumlah_baris_fd = len(st.session_state.fd_row_ids)
+    pilihan_satuan = ["pcs", "box", "porsi", "pack", "cup", "toples"]
 
-if "nota_manual_preview" in st.session_state and st.session_state.nota_manual_preview:
-    tampilkan_nota_estetik(
-        st.session_state.nota_manual_preview,
-        logo_bytes=logo_bytes,
-        bg_style=map_bg[pilihan_bg]
-    )
+    for idx_baris, rid in enumerate(list(st.session_state.fd_row_ids)):
+        c_lbl, c_del = st.columns([3.5, 1])
+        with c_lbl:
+            st.markdown(f"**Menu #{idx_baris + 1}**")
+        with c_del:
+            if jumlah_baris_fd > 1:
+                if st.button("🗑️ Hapus", key=f"fd_del_{rid}", use_container_width=True):
+                    st.session_state.fd_row_ids.remove(rid)
+                    for prefix in ("fd_txt_", "fd_qty_", "fd_unit_", "fd_hrg_"):
+                        st.session_state.pop(f"{prefix}{rid}", None)
+                    st.rerun()
+
+        nama_menu = st.text_input(
+            "Nama Menu",
+            placeholder="Contoh: Brownies Panggang / Dimsum Mentai",
+            key=f"fd_txt_{rid}",
+            label_visibility="collapsed"
+        )
+        col_fq, col_fu, col_fh = st.columns([1, 1, 1.5])
+        with col_fq:
+            qty_f = st.number_input("Banyaknya", min_value=1, value=1, key=f"fd_qty_{rid}")
+        with col_fu:
+            unit_f = st.selectbox("Satuan", pilihan_satuan, key=f"fd_unit_{rid}")
+        with col_fh:
+            harga_f = st.number_input("Harga Satuan (Rp)", min_value=0, step=1000, key=f"fd_hrg_{rid}")
+
+        if nama_menu.strip() and harga_f > 0:
+            items_fd.append({"nama": nama_menu.strip(), "qty": int(qty_f), "unit": unit_f, "harga": int(harga_f)})
+
+    c_fadd, c_frst = st.columns([2.5, 1.2])
+    with c_fadd:
+        if st.button("+ Tambah Baris Menu", key="fd_add_row", use_container_width=True):
+            st.session_state.fd_row_ids.append(str(uuid.uuid4())[:6])
+            st.rerun()
+    with c_frst:
+        if st.button("🧹 Reset Semua", key="fd_rst_all", use_container_width=True):
+            for rid in st.session_state.fd_row_ids:
+                for prefix in ("fd_txt_", "fd_qty_", "fd_unit_", "fd_hrg_"):
+                    st.session_state.pop(f"{prefix}{rid}", None)
+            st.session_state.fd_row_ids = [str(uuid.uuid4())[:6]]
+            st.session_state.fd_nota_preview = None
+            st.rerun()
+
+    col_fo, col_fd_disc = st.columns(2)
+    with col_fo:
+        f_ongkir = st.number_input("Ongkir (Rp)", min_value=0, step=1000, key="fd_ongkir")
+    with col_fd_disc:
+        f_diskon = st.number_input("Diskon (Rp)", min_value=0, step=1000, key="fd_diskon")
+
+    if st.button("✨ Buat Nota Foodies", type="primary", key="fd_submit", use_container_width=True):
+        if not f_nama.strip() or not items_fd:
+            st.error("Isi Nama Customer dan minimal 1 menu terlebih dahulu.")
+        else:
+            bulan_id = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+            tgl_fmt = f"{f_tgl.day} {bulan_id[f_tgl.month - 1]} {f_tgl.year}"
+            st.session_state.fd_nota_preview = {
+                "order_id": "FOD-" + str(uuid.uuid4())[:6].upper(),
+                "nama": f_nama.strip(),
+                "tanggal": tgl_fmt,
+                "items": items_fd,
+                "ongkir": int(f_ongkir),
+                "diskon": int(f_diskon)
+            }
+
+    if "fd_nota_preview" in st.session_state and st.session_state.fd_nota_preview:
+        tampilkan_nota_estetik(
+            st.session_state.fd_nota_preview,
+            logo_bytes=logo_foodies_bytes,
+            brand_type="foodies"
+        )
