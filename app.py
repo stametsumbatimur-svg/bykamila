@@ -693,7 +693,7 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                         <div class="foodies-sub">FOODIES BYKAMILA</div>
                         <div class="foodies-divider"></div>
                         
-                        <div class="foodies-pill">♡ Good Food ; Good Mood ♡</div>
+                        <div class="foodies-pill">♡ Good Food,Good Mood ♡</div>
                     </div>
                 `;
                 document.getElementById('th-nama-item').innerText = 'Nama Menu';
