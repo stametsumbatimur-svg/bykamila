@@ -210,7 +210,7 @@ except Exception as e:
         st.error(f"Gagal terhubung ke Database: {e}")
     st.stop()
 
-# --- 6. FUNGSI RENDER NOTA (SATU TEMA PINK PASTEL + WATERMARK LOGO & ID) ---
+# --- 6. FUNGSI RENDER NOTA (SATU TEMA PINK PASTEL + HEADER PROPORSIONAL) ---
 def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"):
     subtotal_calc = sum(int(it["qty"]) * int(it["harga"]) for it in payload_nota["items"])
     total_akhir_calc = subtotal_calc - int(payload_nota["diskon"]) + int(payload_nota["ongkir"])
@@ -347,16 +347,16 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                 margin-bottom: 14px;
             }
             .brand-logo-wrap {
-                width: 158px;
+                width: 152px;
                 flex-shrink: 0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
             }
             .brand-logo-wrap img {
-                width: 154px;
+                width: 148px;
                 height: auto;
-                max-height: 146px;
+                max-height: 144px;
                 object-fit: contain;
                 display: block;
             }
@@ -375,6 +375,53 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                 margin-top: 8px;
                 line-height: 1.15;
                 color: var(--pink-main);
+            }
+            /* Desain khusus header kanan Foodies agar seimbang dengan logo lingkaran */
+            .foodies-header-right {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                justify-content: center;
+                gap: 4px;
+            }
+            .foodies-title {
+                font-family: 'Dancing Script', cursive;
+                font-size: 32px;
+                line-height: 1;
+                color: var(--pink-main);
+            }
+            .foodies-sub {
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1.5px;
+                color: #ad1457;
+                text-transform: uppercase;
+            }
+            .foodies-divider {
+                width: 100%;
+                height: 1.5px;
+                background: linear-gradient(90deg, transparent, #f48fb1, #d81b60);
+                margin: 3px 0;
+            }
+            .foodies-wa {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 5px;
+                font-size: 12.5px;
+                font-weight: 700;
+                color: var(--pink-main);
+            }
+            .foodies-pill {
+                margin-top: 3px;
+                background: rgba(252, 228, 236, 0.92);
+                border: 1px solid #f48fb1;
+                color: #d81b60;
+                font-size: 10.5px;
+                font-weight: 700;
+                padding: 4px 11px;
+                border-radius: 20px;
+                white-space: nowrap;
             }
             .info-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
             .info-box {
@@ -565,7 +612,6 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;');
 
-            // Hapus latar putih di bagian luar logo saja (menjaga warna putih di dalam gambar tetap utuh)
             function cleanLogoOuterBg(dataUri, callback) {
                 if (!dataUri) { callback(''); return; }
                 const img = new Image();
@@ -642,10 +688,18 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                 }
 
                 contactContainer.innerHTML = `
-                    <div class="contact">
-                        
+                    <div class="foodies-header-right">
+                        <div class="foodies-title">Nota Pesanan</div>
+                        <div class="foodies-sub">FOODIES BYKAMILA</div>
+                        <div class="foodies-divider"></div>
+                        <div class="foodies-wa">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                            </svg>
+                            <span>0812-8886-0421</span>
+                        </div>
+                        <div class="foodies-pill">♡ Fresh &amp; Homemade Setiap Hari ♡</div>
                     </div>
-                    
                 `;
                 document.getElementById('th-nama-item').innerText = 'Nama Menu';
                 document.getElementById('out-footer-sub').innerText = 'Semoga suka dengan makanannya di Foodies bykamila';
@@ -684,7 +738,6 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                 document.getElementById('out-footer-sub').innerText = 'Semoga suka dengan produknya di Homedress bykamila';
             }
 
-            // Watermark teks diagonal tetap memuat ID Nota
             const wmWrap = document.getElementById('wm-text-wrap');
             const wmBrandLabel = isFoodies ? 'FOODIES BYKAMILA' : 'BYKAMILA';
             const wmString = `LUNAS • ${data.order_id} • ${wmBrandLabel} • `;
@@ -937,7 +990,6 @@ with tab_hd:
 # TAB 2: NOTA MANUAL FOODIES BYKAMILA
 # ==============================================================================
 with tab_fd:
-    # Panel upload logo otomatis tampil hanya jika logo Foodies belum pernah disimpan
     if not logo_foodies_bytes:
         with st.expander("🖼️ Upload Logo Foodies ByKamila (Cukup 1 kali saja)", expanded=True):
             with st.form("form_upload_logo_foodies"):
