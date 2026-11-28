@@ -183,19 +183,23 @@ def simpan_pengaturan(kunci, nilai):
     if nilai != "":
         ws_cfg.append_row([kunci, nilai])
 
+def hitung_untung_entri(jenis, modal_brg, harga_jual):
+    if jenis in ("Modal Awal", "Tarik Dana"):
+        return 0
+    elif jenis == "Penjualan":
+        return int(harga_jual) - int(modal_brg)
+    else:
+        # Belanja Stok / Operasional
+        return -int(modal_brg)
+
 def tambah_entri_pembukuan(tgl_str, toko, jenis, keterangan, qty, modal_brg, harga_jual, catatan=""):
     db = get_google_sheet()
     ws_buku = db.worksheet("Pembukuan")
     id_tx = "TRX-" + str(uuid.uuid4())[:6].upper()
 
-    if jenis == "Modal Awal":
-        untung = 0
+    if jenis in ("Modal Awal", "Tarik Dana", "Belanja Stok", "Operasional"):
         harga_jual = 0
-    elif jenis == "Penjualan":
-        untung = int(harga_jual) - int(modal_brg)
-    else:
-        untung = -int(modal_brg)
-        harga_jual = 0
+    untung = hitung_untung_entri(jenis, modal_brg, harga_jual)
 
     ws_buku.append_row([
         id_tx, tgl_str, toko, jenis, keterangan,
@@ -215,15 +219,8 @@ def tambah_banyak_entri_pembukuan(rows_list):
         id_tx = "TRX-" + str(uuid.uuid4())[:6].upper()
         jenis = item["jenis"]
         modal_brg = int(item["modal_brg"])
-        harga_jual = int(item["harga_jual"])
-        if jenis == "Modal Awal":
-            untung = 0
-            harga_jual = 0
-        elif jenis == "Penjualan":
-            untung = harga_jual - modal_brg
-        else:
-            untung = -modal_brg
-            harga_jual = 0
+        harga_jual = 0 if jenis in ("Modal Awal", "Tarik Dana", "Belanja Stok", "Operasional") else int(item["harga_jual"])
+        untung = hitung_untung_entri(jenis, modal_brg, harga_jual)
         formatted_rows.append([
             id_tx,
             item["tgl_str"],
@@ -243,14 +240,9 @@ def update_entri_pembukuan(row_num, id_tx, tgl_str, toko, jenis, keterangan, qty
     db = get_google_sheet()
     ws_buku = db.worksheet("Pembukuan")
 
-    if jenis == "Modal Awal":
-        untung = 0
+    if jenis in ("Modal Awal", "Tarik Dana", "Belanja Stok", "Operasional"):
         harga_jual = 0
-    elif jenis == "Penjualan":
-        untung = int(harga_jual) - int(modal_brg)
-    else:
-        untung = -int(modal_brg)
-        harga_jual = 0
+    untung = hitung_untung_entri(jenis, modal_brg, harga_jual)
 
     ws_buku.update(
         f"A{row_num}:J{row_num}",
@@ -374,7 +366,6 @@ def get_katalog_pintar(toko_name):
         if not ket:
             continue
 
-        # Bersihkan label tambahan seperti "(Harga Promo)" jika ada agar nama pokok tetap rapi
         nm_pokok = ket.split(" [", 1)[0].strip() if " [" in ket else ket
 
         if str(r.get("Catatan", "")).startswith("Nota ") and " - " in nm_pokok and "," in nm_pokok:
@@ -1177,13 +1168,11 @@ with tab_hd:
             st.caption("Isi harga modal satuan tiap barang di bawah ini (otomatis terisi jika sudah pernah dicatat):")
             with st.form(f"form_catat_hd_{prev_hd['order_id']}"):
                 modal_inputs_hd = []
-                total_jual_nota_hd = sum(it["qty"] * it["harga"] for it in prev_hd["items"])
                 sisa_diskon_hd = int(prev_hd["diskon"])
 
                 for idx_it, it in enumerate(prev_hd["items"]):
                     est_mod_sat = katalog_homedress.get(it["nama"], {}).get("modal_satuan", 0)
                     jual_baris = it["qty"] * it["harga"]
-                    # Potong diskon proporsional/berurutan ke item jika nota memiliki diskon
                     potongan = min(jual_baris, sisa_diskon_hd)
                     sisa_diskon_hd -= potongan
                     jual_bersih_baris = jual_baris - potongan
@@ -1400,10 +1389,10 @@ with tab_fd:
                         st.success(f"✅ {len(rows_to_add)} menu berhasil dicatat ke tab Pembukuan!")
 
 # ==============================================================================
-# TAB 3: PEMBUKUAN KEUANGAN (MENDUKUNG MULTI-ITEM & HARGA SATUAN FLEKSIBEL)
+# TAB 3: PEMBUKUAN KEUANGAN (TERMASUK MENU TARIK DANA QRIS)
 # ==============================================================================
 with tab_buku:
-    st.subheader("📒 Pembukuan & Arus Kas")
+    st.subheader("📒 Pembukuan & Arus Kas QRIS")
 
     filter_toko = st.radio(
         "Filter Pembukuan Toko:",
@@ -1422,9 +1411,10 @@ with tab_buku:
     total_hpp_terjual = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Penjualan")
     total_belanja_stok = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Belanja Stok")
     total_operasional = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Operasional")
+    total_tarik_dana = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Tarik Dana")
 
     total_untung_bersih = (total_omzet - total_hpp_terjual) - total_operasional
-    saldo_akhir = total_modal_awal + total_omzet - total_belanja_stok - total_operasional
+    saldo_akhir = total_modal_awal + total_omzet - total_belanja_stok - total_operasional - total_tarik_dana
 
     fmt_rp = lambda n: f"Rp {int(n):,.0f}".replace(",", ".")
 
@@ -1454,14 +1444,14 @@ with tab_buku:
         """, unsafe_allow_html=True)
         st.markdown(f"""
             <div class='metric-card' style='background:#fce4ec;'>
-                <div class='metric-label'>🏦 SALDO AKHIR KAS</div>
+                <div class='metric-label'>🏦 SALDO AKHIR KAS QRIS</div>
                 <div class='metric-val' style='color:#d81b60;'>{fmt_rp(saldo_akhir)}</div>
-                <div class='metric-sub'>Modal + Omzet - Belanja - Ops</div>
+                <div class='metric-sub'>Total Ditarik: {fmt_rp(total_tarik_dana)}</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # --- FORM TAMBAH CATATAN BARU (MULTI-BARIS & HARGA BEBAS DIUBAH) ---
-    with st.expander("➕ Tambah Catatan Pembukuan Baru", expanded=True):
+    # --- FORM TAMBAH CATATAN BARU (TERMASUK MENU TARIK DANA QRIS) ---
+    with st.expander("➕ Tambah Catatan Pembukuan / Tarik Dana QRIS", expanded=True):
         c_b1, c_b2 = st.columns(2)
         with c_b1:
             b_tgl = st.date_input("Tanggal", value=datetime.date.today(), key="bk_tgl")
@@ -1471,9 +1461,10 @@ with tab_buku:
 
         jenis_pilihan = st.selectbox(
             "Jenis Transaksi",
-            ["Penjualan", "Modal Awal", "Belanja Stok", "Operasional"],
+            ["Penjualan", "Tarik Dana", "Modal Awal", "Belanja Stok", "Operasional"],
             format_func=lambda x: {
                 "Penjualan": "🛍️ Penjualan Barang (Bisa banyak item & harga berbeda-beda)",
+                "Tarik Dana": "💸 Tarik Dana QRIS ke Rekening / Tunai (Mengurangi Saldo Akhir)",
                 "Modal Awal": "💰 Modal Awal / Tambah Saldo Kas",
                 "Belanja Stok": "📦 Belanja Stok / Bahan Baku (Bisa banyak item & harga berbeda)",
                 "Operasional": "🧾 Biaya Operasional / Kemasan / Ongkir"
@@ -1527,7 +1518,6 @@ with tab_buku:
                     mod_sat_def = int(info_item.get("modal_satuan", 0))
                     jual_sat_def = int(info_item.get("jual_satuan", 0))
 
-                # Hanya isi otomatis saat pilihan item atau toko berubah, agar edit harga manual tidak tertimpa
                 key_trigger = f"{b_toko}|{pilih_item_bk}"
                 if st.session_state.get(f"bk_last_{rid}") != key_trigger:
                     st.session_state[f"bk_last_{rid}"] = key_trigger
@@ -1622,6 +1612,39 @@ with tab_buku:
                         st.success(f"✅ {len(rows_payload)} item berhasil disimpan ke pembukuan!")
                         st.rerun()
 
+        elif jenis_pilihan == "Tarik Dana":
+            st.caption(f"Sisa Saldo Kas QRIS ({filter_toko}) saat ini: **{fmt_rp(saldo_akhir)}**")
+            b_ket = st.text_input(
+                "Tujuan Penarikan Dana",
+                value="Tarik Saldo QRIS ke Rekening",
+                placeholder="Contoh: Tarik QRIS ke BCA / Ambil Uang Tunai",
+                key="bk_ket_tarik"
+            )
+            b_modal = st.number_input("Nominal Dana yang Ditarik (Rp)", min_value=0, step=50000, key="bk_nom_tarik")
+            b_catatan = st.text_input("Catatan Tambahan (Opsional)", placeholder="Contoh: Cair ke BCA a.n. Kamila", key="bk_catatan_tarik")
+
+            if b_modal > 0:
+                sisa_setelah_tarik = saldo_akhir - int(b_modal)
+                st.info(f"Perkiraan Sisa Saldo QRIS Setelah Penarikan: **{fmt_rp(sisa_setelah_tarik)}**")
+
+            if st.button("💸 Catat Tarik Dana QRIS", type="primary", key="bk_submit_tarik", use_container_width=True):
+                if not b_ket.strip() or b_modal == 0:
+                    st.error("Tujuan penarikan dan nominal wajib diisi!")
+                else:
+                    with st.spinner("Mencatat penarikan dana ke Google Sheets..."):
+                        tambah_entri_pembukuan(
+                            tgl_str=b_tgl.strftime("%Y-%m-%d"),
+                            toko=b_toko,
+                            jenis="Tarik Dana",
+                            keterangan=b_ket.strip(),
+                            qty=1,
+                            modal_brg=int(b_modal),
+                            harga_jual=0,
+                            catatan=b_catatan.strip()
+                        )
+                        st.success(f"✅ Penarikan dana sebesar {fmt_rp(b_modal)} berhasil dicatat & saldo kas otomatis berkurang!")
+                        st.rerun()
+
         elif jenis_pilihan == "Modal Awal":
             b_ket = st.text_input("Keterangan Modal", value="Modal Awal Kas", key="bk_ket_modal")
             b_modal = st.number_input("Nominal Modal Awal (Rp)", min_value=0, step=50000, key="bk_nom_modal")
@@ -1685,7 +1708,7 @@ with tab_buku:
                 "Toko": r["Toko"],
                 "Jenis": r["Jenis"],
                 "Barang / Keterangan": f"{r['Keterangan']} ({r['Qty']}x)" if r["Qty"] > 1 else r["Keterangan"],
-                "Modal/Keluar": fmt_rp(r["Modal Barang"]) if r["Modal Barang"] > 0 else "-",
+                "Modal/Keluar/Tarik": fmt_rp(r["Modal Barang"]) if r["Modal Barang"] > 0 else "-",
                 "Harga Jual": fmt_rp(r["Harga Jual"]) if r["Harga Jual"] > 0 else "-",
                 "Untung": fmt_rp(r["Untung"]) if r["Jenis"] == "Penjualan" else "-"
             })
@@ -1706,7 +1729,7 @@ with tab_buku:
             except Exception:
                 tgl_default_edit = datetime.date.today()
 
-            list_jenis = ["Penjualan", "Modal Awal", "Belanja Stok", "Operasional"]
+            list_jenis = ["Penjualan", "Tarik Dana", "Modal Awal", "Belanja Stok", "Operasional"]
             idx_jenis_lama = list_jenis.index(tx_lama["Jenis"]) if tx_lama["Jenis"] in list_jenis else 0
             idx_toko_lama = 1 if tx_lama["Toko"] == "Foodies" else 0
 
@@ -1725,7 +1748,7 @@ with tab_buku:
                 with ce4:
                     e_qty = st.number_input("Jml", min_value=1, value=max(1, int(tx_lama["Qty"])))
                 with ce5:
-                    e_modal = st.number_input("Total Modal / Pengeluaran (Rp)", min_value=0, step=1000, value=int(tx_lama["Modal Barang"]))
+                    e_modal = st.number_input("Modal / Keluar / Tarik (Rp)", min_value=0, step=1000, value=int(tx_lama["Modal Barang"]))
                 with ce6:
                     e_jual = st.number_input("Total Harga Jual (Rp)", min_value=0, step=1000, value=int(tx_lama["Harga Jual"]))
 
