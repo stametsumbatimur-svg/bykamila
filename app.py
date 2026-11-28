@@ -11,7 +11,7 @@ import hashlib
 import urllib.parse
 
 # --- 1. SETUP HALAMAN ---
-st.set_page_config(page_title="Generator Nota ByKamila", page_icon="🧾", layout="centered")
+st.set_page_config(page_title="Generator Nota & Pembukuan ByKamila", page_icon="🧾", layout="centered")
 
 st.markdown("""
     <style>
@@ -29,6 +29,29 @@ st.markdown("""
             border-radius: 16px;
             padding: 20px;
             color: #b71c1c;
+        }
+        .metric-card {
+            background: #fff8fa;
+            border: 1.5px solid #f48fb1;
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
+        }
+        .metric-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #ad1457;
+            margin-bottom: 2px;
+        }
+        .metric-val {
+            font-size: 18px;
+            font-weight: 800;
+            color: #222;
+        }
+        .metric-sub {
+            font-size: 11px;
+            color: #666;
+            margin-top: 2px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -78,9 +101,15 @@ def get_google_sheet():
     client = gspread.authorize(creds)
     return client.open("Database_ByKamila")
 
+HEADER_PEMBUKUAN = [
+    "ID", "Tanggal", "Toko", "Jenis", "Keterangan",
+    "Qty", "Modal Barang", "Harga Jual", "Untung", "Catatan"
+]
+
 @st.cache_data(ttl=45, show_spinner=False)
-def load_nota_data():
+def load_all_data():
     db = get_google_sheet()
+
     data_produk = []
     try:
         ws_produk = db.worksheet("Produk")
@@ -95,7 +124,42 @@ def load_nota_data():
     except Exception:
         pass
 
-    return data_produk, cfg_toko
+    data_buku = []
+    try:
+        ws_buku = db.worksheet("Pembukuan")
+    except gspread.WorksheetNotFound:
+        ws_buku = db.add_worksheet(title="Pembukuan", rows=500, cols=10)
+        ws_buku.append_row(HEADER_PEMBUKUAN)
+
+    try:
+        raw_rows = ws_buku.get_all_values()
+        if not raw_rows:
+            ws_buku.append_row(HEADER_PEMBUKUAN)
+        elif len(raw_rows) > 1:
+            for idx_sheet, row in enumerate(raw_rows[1:], start=2):
+                padded = row + [""] * (10 - len(row))
+                def to_int(v):
+                    try:
+                        return int(float(str(v).replace(".", "").replace(",", "").strip()))
+                    except Exception:
+                        return 0
+                data_buku.append({
+                    "row_num": idx_sheet,
+                    "ID": str(padded[0]).strip(),
+                    "Tanggal": str(padded[1]).strip(),
+                    "Toko": str(padded[2]).strip() or "Homedress",
+                    "Jenis": str(padded[3]).strip() or "Penjualan",
+                    "Keterangan": str(padded[4]).strip(),
+                    "Qty": max(1, to_int(padded[5])) if str(padded[5]).strip() != "" else 1,
+                    "Modal Barang": to_int(padded[6]),
+                    "Harga Jual": to_int(padded[7]),
+                    "Untung": to_int(padded[8]),
+                    "Catatan": str(padded[9]).strip()
+                })
+    except Exception:
+        pass
+
+    return data_produk, cfg_toko, data_buku
 
 def simpan_pengaturan(kunci, nilai):
     db = get_google_sheet()
@@ -118,6 +182,53 @@ def simpan_pengaturan(kunci, nilai):
             return
     if nilai != "":
         ws_cfg.append_row([kunci, nilai])
+
+def tambah_entri_pembukuan(tgl_str, toko, jenis, keterangan, qty, modal_brg, harga_jual, catatan=""):
+    db = get_google_sheet()
+    ws_buku = db.worksheet("Pembukuan")
+    id_tx = "TRX-" + str(uuid.uuid4())[:6].upper()
+
+    if jenis == "Modal Awal":
+        untung = 0
+        harga_jual = 0
+    elif jenis == "Penjualan":
+        untung = int(harga_jual) - int(modal_brg)
+    else:
+        # Belanja Stok / Operasional
+        untung = -int(modal_brg)
+        harga_jual = 0
+
+    ws_buku.append_row([
+        id_tx, tgl_str, toko, jenis, keterangan,
+        int(qty), int(modal_brg), int(harga_jual), int(untung), catatan
+    ])
+    load_all_data.clear()
+    return id_tx
+
+def update_entri_pembukuan(row_num, id_tx, tgl_str, toko, jenis, keterangan, qty, modal_brg, harga_jual, catatan=""):
+    db = get_google_sheet()
+    ws_buku = db.worksheet("Pembukuan")
+
+    if jenis == "Modal Awal":
+        untung = 0
+        harga_jual = 0
+    elif jenis == "Penjualan":
+        untung = int(harga_jual) - int(modal_brg)
+    else:
+        untung = -int(modal_brg)
+        harga_jual = 0
+
+    ws_buku.update(
+        f"A{row_num}:J{row_num}",
+        [[id_tx, tgl_str, toko, jenis, keterangan, int(qty), int(modal_brg), int(harga_jual), int(untung), catatan]]
+    )
+    load_all_data.clear()
+
+def hapus_entri_pembukuan(row_num):
+    db = get_google_sheet()
+    ws_buku = db.worksheet("Pembukuan")
+    ws_buku.delete_rows(row_num)
+    load_all_data.clear()
 
 # --- 4. MODE VERIFIKASI PUBLIK SAAT QR CODE DI NOTA DI-SCAN ---
 if "cek" in st.query_params:
@@ -197,14 +308,14 @@ if "cek" in st.query_params:
 
     st.stop()
 
-# --- 5. AMBIL DATA PRODUK, QRIS & LOGO ---
+# --- 5. AMBIL DATA PRODUK, QRIS, LOGO & PEMBUKUAN ---
 try:
-    data_produk_list, cfg_toko = load_nota_data()
+    data_produk_list, cfg_toko, data_pembukuan = load_all_data()
 except Exception as e:
     if "429" in str(e):
         st.warning("⏳ Kuota akses Google Sheets sedang penuh sementara. Tunggu 30–60 detik lalu tekan tombol **🔄 Coba Lagi**.")
         if st.button("🔄 Coba Lagi"):
-            load_nota_data.clear()
+            load_all_data.clear()
             st.rerun()
     else:
         st.error(f"Gagal terhubung ke Database: {e}")
@@ -376,7 +487,6 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                 line-height: 1.15;
                 color: var(--pink-main);
             }
-            /* Desain khusus header kanan Foodies agar seimbang dengan logo lingkaran */
             .foodies-header-right {
                 display: flex;
                 flex-direction: column;
@@ -692,8 +802,13 @@ def tampilkan_nota_estetik(payload_nota, logo_bytes=None, brand_type="homedress"
                         <div class="foodies-title">Nota Pesanan</div>
                         <div class="foodies-sub">FOODIES BYKAMILA</div>
                         <div class="foodies-divider"></div>
-                        
-                        <div class="foodies-pill">♡ Good Food,Good Mood ♡</div>
+                        <div class="foodies-wa">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                            </svg>
+                            <span>0812-8886-0421</span>
+                        </div>
+                        <div class="foodies-pill">♡ Fresh &amp; Homemade Setiap Hari ♡</div>
                     </div>
                 `;
                 document.getElementById('th-nama-item').innerText = 'Nama Menu';
@@ -853,7 +968,7 @@ with col_head1:
     st.markdown("<h3 style='color: #d81b60; font-family: cursive; margin:0;'>♡ Generator Nota ByKamila ♡</h3>", unsafe_allow_html=True)
 with col_head2:
     if st.button("🔄 Refresh", use_container_width=True, help="Perbarui daftar harga produk, logo & QRIS"):
-        load_nota_data.clear()
+        load_all_data.clear()
         ambil_bytes_gambar.clear()
         st.rerun()
 
@@ -882,8 +997,8 @@ if qris_bytes or info_bayar_tersimpan:
         if info_bayar_tersimpan:
             st.info(f"**Info Rekening / Pembayaran:**\n\n{info_bayar_tersimpan}")
 
-# --- 8. TAB PILIHAN NOTA: HOMEDRESS VS FOODIES ---
-tab_hd, tab_fd = st.tabs(["👗 Nota Homedress", "🍽️ Nota Foodies"])
+# --- 8. TAB PILIHAN: HOMEDRESS, FOODIES & PEMBUKUAN ---
+tab_hd, tab_fd, tab_buku = st.tabs(["👗 Nota Homedress", "🍽️ Nota Foodies", "📒 Pembukuan"])
 
 # ==============================================================================
 # TAB 1: NOTA HOMEDRESS BYKAMILA
@@ -969,17 +1084,42 @@ with tab_hd:
                 "order_id": "MAN-" + str(uuid.uuid4())[:6].upper(),
                 "nama": m_nama.strip(),
                 "tanggal": tgl_fmt,
+                "tgl_iso": m_tgl.strftime("%Y-%m-%d"),
                 "items": items_hd,
                 "ongkir": int(m_ongkir),
                 "diskon": int(m_diskon)
             }
 
     if "hd_nota_preview" in st.session_state and st.session_state.hd_nota_preview:
+        prev_hd = st.session_state.hd_nota_preview
         tampilkan_nota_estetik(
-            st.session_state.hd_nota_preview,
+            prev_hd,
             logo_bytes=logo_homedress_bytes,
             brand_type="homedress"
         )
+        with st.expander("📥 Simpan Transaksi Ini ke Pembukuan Homedress", expanded=False):
+            sub_hd = sum(it["qty"] * it["harga"] for it in prev_hd["items"]) - prev_hd["diskon"]
+            tot_qty_hd = sum(it["qty"] for it in prev_hd["items"])
+            ringkas_hd = ", ".join([f"{it['nama']} ({it['qty']} pcs)" for it in prev_hd["items"]])
+            with st.form(f"form_catat_hd_{prev_hd['order_id']}"):
+                modal_brg_hd = st.number_input(
+                    "Total Harga Modal Barang (Rp) — untuk menghitung untung otomatis",
+                    min_value=0, step=5000, value=0
+                )
+                btn_catat_hd = st.form_submit_button("💾 Masukkan ke Pembukuan", type="primary", use_container_width=True)
+                if btn_catat_hd:
+                    with st.spinner("Menyimpan ke pembukuan..."):
+                        tambah_entri_pembukuan(
+                            tgl_str=prev_hd.get("tgl_iso", datetime.date.today().strftime("%Y-%m-%d")),
+                            toko="Homedress",
+                            jenis="Penjualan",
+                            keterangan=f"{prev_hd['nama']} - {ringkas_hd}",
+                            qty=tot_qty_hd,
+                            modal_brg=int(modal_brg_hd),
+                            harga_jual=int(sub_hd),
+                            catatan=f"Nota {prev_hd['order_id']}"
+                        )
+                        st.success("✅ Berhasil dicatat ke tab Pembukuan!")
 
 # ==============================================================================
 # TAB 2: NOTA MANUAL FOODIES BYKAMILA
@@ -1005,7 +1145,7 @@ with tab_fd:
                                 st.error(err_fd)
                             else:
                                 simpan_pengaturan("logo_foodies_url", url_fd_baru)
-                                load_nota_data.clear()
+                                load_all_data.clear()
                                 ambil_bytes_gambar.clear()
                                 st.success("✅ Logo Foodies berhasil disimpan!")
                                 st.rerun()
@@ -1084,14 +1224,269 @@ with tab_fd:
                 "order_id": "FOD-" + str(uuid.uuid4())[:6].upper(),
                 "nama": f_nama.strip(),
                 "tanggal": tgl_fmt,
+                "tgl_iso": f_tgl.strftime("%Y-%m-%d"),
                 "items": items_fd,
                 "ongkir": int(f_ongkir),
                 "diskon": int(f_diskon)
             }
 
     if "fd_nota_preview" in st.session_state and st.session_state.fd_nota_preview:
+        prev_fd = st.session_state.fd_nota_preview
         tampilkan_nota_estetik(
-            st.session_state.fd_nota_preview,
+            prev_fd,
             logo_bytes=logo_foodies_bytes,
             brand_type="foodies"
         )
+        with st.expander("📥 Simpan Transaksi Ini ke Pembukuan Foodies", expanded=False):
+            sub_fd = sum(it["qty"] * it["harga"] for it in prev_fd["items"]) - prev_fd["diskon"]
+            tot_qty_fd = sum(it["qty"] for it in prev_fd["items"])
+            ringkas_fd = ", ".join([f"{it['nama']} ({it['qty']} {it.get('unit', 'pcs')})" for it in prev_fd["items"]])
+            with st.form(f"form_catat_fd_{prev_fd['order_id']}"):
+                modal_brg_fd = st.number_input(
+                    "Total Harga Modal Bahan (Rp) — untuk menghitung untung otomatis",
+                    min_value=0, step=5000, value=0
+                )
+                btn_catat_fd = st.form_submit_button("💾 Masukkan ke Pembukuan", type="primary", use_container_width=True)
+                if btn_catat_fd:
+                    with st.spinner("Menyimpan ke pembukuan..."):
+                        tambah_entri_pembukuan(
+                            tgl_str=prev_fd.get("tgl_iso", datetime.date.today().strftime("%Y-%m-%d")),
+                            toko="Foodies",
+                            jenis="Penjualan",
+                            keterangan=f"{prev_fd['nama']} - {ringkas_fd}",
+                            qty=tot_qty_fd,
+                            modal_brg=int(modal_brg_fd),
+                            harga_jual=int(sub_fd),
+                            catatan=f"Nota {prev_fd['order_id']}"
+                        )
+                        st.success("✅ Berhasil dicatat ke tab Pembukuan!")
+
+# ==============================================================================
+# TAB 3: PEMBUKUAN KEUANGAN (MODAL AWAL, HARGA BARANG, UNTUNG & SALDO AKHIR)
+# ==============================================================================
+with tab_buku:
+    st.subheader("📒 Pembukuan & Arus Kas")
+
+    filter_toko = st.radio(
+        "Filter Pembukuan Toko:",
+        ["Semua Toko", "Homedress", "Foodies"],
+        horizontal=True,
+        key="filter_buku_toko"
+    )
+
+    if filter_toko == "Semua Toko":
+        buku_filtered = list(data_pembukuan)
+    else:
+        buku_filtered = [r for r in data_pembukuan if r["Toko"] == filter_toko]
+
+    # Hitung ringkasan keuangan otomatis
+    total_modal_awal = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Modal Awal")
+    total_omzet = sum(r["Harga Jual"] for r in buku_filtered if r["Jenis"] == "Penjualan")
+    total_hpp_terjual = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Penjualan")
+    total_belanja_stok = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Belanja Stok")
+    total_operasional = sum(r["Modal Barang"] for r in buku_filtered if r["Jenis"] == "Operasional")
+
+    total_untung_bersih = (total_omzet - total_hpp_terjual) - total_operasional
+    saldo_akhir = total_modal_awal + total_omzet - total_belanja_stok - total_operasional
+
+    fmt_rp = lambda n: f"Rp {int(n):,.0f}".replace(",", ".")
+
+    c_k1, c_k2 = st.columns(2)
+    with c_k1:
+        st.markdown(f"""
+            <div class='metric-card'>
+                <div class='metric-label'>💰 MODAL AWAL / SUNTIKAN</div>
+                <div class='metric-val'>{fmt_rp(total_modal_awal)}</div>
+                <div class='metric-sub'>Belanja Stok: {fmt_rp(total_belanja_stok)}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class='metric-card'>
+                <div class='metric-label'>📈 TOTAL UNTUNG BERSIH</div>
+                <div class='metric-val' style='color:{"#2e7d32" if total_untung_bersih >= 0 else "#c62828"};'>{fmt_rp(total_untung_bersih)}</div>
+                <div class='metric-sub'>Operasional: {fmt_rp(total_operasional)}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with c_k2:
+        st.markdown(f"""
+            <div class='metric-card'>
+                <div class='metric-label'>🛍️ OMZET & MODAL BARANG</div>
+                <div class='metric-val'>{fmt_rp(total_omzet)}</div>
+                <div class='metric-sub'>Modal Barang Terjual: {fmt_rp(total_hpp_terjual)}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class='metric-card' style='background:#fce4ec;'>
+                <div class='metric-label'>🏦 SALDO AKHIR KAS</div>
+                <div class='metric-val' style='color:#d81b60;'>{fmt_rp(saldo_akhir)}</div>
+                <div class='metric-sub'>Modal + Omzet - Belanja - Ops</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # --- FORM TAMBAH CATATAN BARU ---
+    with st.expander("➕ Tambah Catatan Pembukuan Baru", expanded=True):
+        jenis_pilihan = st.selectbox(
+            "Jenis Transaksi",
+            [
+                "Penjualan",
+                "Modal Awal",
+                "Belanja Stok",
+                "Operasional"
+            ],
+            format_func=lambda x: {
+                "Penjualan": "🛍️ Penjualan Barang (Hitung Harga Modal, Harga Jual & Untung)",
+                "Modal Awal": "💰 Modal Awal / Tambah Saldo Kas",
+                "Belanja Stok": "📦 Belanja Stok / Bahan Baku (Mengurangi Saldo Kas)",
+                "Operasional": "🧾 Biaya Operasional / Kemasan / Ongkir (Mengurangi Untung & Saldo)"
+            }[x],
+            key="buku_jenis_baru"
+        )
+
+        with st.form("form_tambah_pembukuan", clear_on_submit=True):
+            c_b1, c_b2 = st.columns(2)
+            with c_b1:
+                b_tgl = st.date_input("Tanggal", value=datetime.date.today())
+            with c_b2:
+                idx_toko_def = 1 if filter_toko == "Foodies" else 0
+                b_toko = st.selectbox("Toko", ["Homedress", "Foodies"], index=idx_toko_def)
+
+            b_ket = st.text_input(
+                "Nama Barang / Keterangan Transaksi",
+                placeholder="Contoh: Modal Awal Kas / Gamis Kanaya (2 pcs) / Beli Plastik Packing"
+            )
+
+            if jenis_pilihan == "Penjualan":
+                c_p1, c_p2, c_p3 = st.columns([0.8, 1.3, 1.3])
+                with c_p1:
+                    b_qty = st.number_input("Jml", min_value=1, value=1)
+                with c_p2:
+                    b_modal = st.number_input("Total Harga Modal (Rp)", min_value=0, step=5000)
+                with c_p3:
+                    b_jual = st.number_input("Total Harga Jual (Rp)", min_value=0, step=5000)
+            elif jenis_pilihan == "Modal Awal":
+                b_qty = 1
+                b_modal = st.number_input("Nominal Modal Awal (Rp)", min_value=0, step=50000)
+                b_jual = 0
+            else:
+                c_o1, c_o2 = st.columns([0.8, 2.2])
+                with c_o1:
+                    b_qty = st.number_input("Jml", min_value=1, value=1)
+                with c_o2:
+                    b_modal = st.number_input("Nominal Pengeluaran (Rp)", min_value=0, step=5000)
+                b_jual = 0
+
+            b_catatan = st.text_input("Catatan Tambahan (Opsional)", placeholder="Contoh: Transfer BCA / Cash")
+            btn_simpan_buku = st.form_submit_button("💾 Simpan ke Pembukuan", type="primary", use_container_width=True)
+
+            if btn_simpan_buku:
+                if not b_ket.strip():
+                    st.error("Nama barang / keterangan transaksi wajib diisi!")
+                elif b_modal == 0 and b_jual == 0:
+                    st.error("Nominal rupiah tidak boleh 0.")
+                else:
+                    with st.spinner("Menyimpan catatan permanen ke Google Sheets..."):
+                        tambah_entri_pembukuan(
+                            tgl_str=b_tgl.strftime("%Y-%m-%d"),
+                            toko=b_toko,
+                            jenis=jenis_pilihan,
+                            keterangan=b_ket.strip(),
+                            qty=int(b_qty),
+                            modal_brg=int(b_modal),
+                            harga_jual=int(b_jual),
+                            catatan=b_catatan.strip()
+                        )
+                        st.success("✅ Catatan berhasil disimpan dan tidak akan hilang saat di-refresh!")
+                        st.rerun()
+
+    # --- TABEL RIWAYAT PEMBUKUAN ---
+    st.subheader("📋 Riwayat Transaksi")
+    if not buku_filtered:
+        st.info("Belum ada catatan pembukuan. Mulai dengan menambahkan **Modal Awal** atau transaksi penjualan di atas.")
+    else:
+        # Urutkan terbaru di atas
+        buku_tampil = list(reversed(buku_filtered))
+        tabel_ringkas = []
+        for r in buku_tampil:
+            tabel_ringkas.append({
+                "ID": r["ID"],
+                "Tanggal": r["Tanggal"],
+                "Toko": r["Toko"],
+                "Jenis": r["Jenis"],
+                "Keterangan": f"{r['Keterangan']} ({r['Qty']}x)" if r["Qty"] > 1 else r["Keterangan"],
+                "Modal/Keluar": fmt_rp(r["Modal Barang"]) if r["Modal Barang"] > 0 else "-",
+                "Harga Jual": fmt_rp(r["Harga Jual"]) if r["Harga Jual"] > 0 else "-",
+                "Untung": fmt_rp(r["Untung"]) if r["Jenis"] == "Penjualan" else "-"
+            })
+        st.dataframe(tabel_ringkas, use_container_width=True, hide_index=True)
+
+        # --- EDIT / HAPUS CATATAN PEMBUKUAN ---
+        with st.expander("✏️ Edit atau Hapus Catatan Pembukuan", expanded=False):
+            opsi_edit = [
+                f"{r['ID']} | {r['Tanggal']} | [{r['Toko']}] {r['Keterangan']}"
+                for r in buku_tampil
+            ]
+            pilih_tx_label = st.selectbox("Pilih Transaksi yang Ingin Diedit / Dihapus", opsi_edit, key="pilih_edit_buku")
+            idx_dipilih = opsi_edit.index(pilih_tx_label)
+            tx_lama = buku_tampil[idx_dipilih]
+
+            try:
+                tgl_default_edit = datetime.date.fromisoformat(tx_lama["Tanggal"])
+            except Exception:
+                tgl_default_edit = datetime.date.today()
+
+            list_jenis = ["Penjualan", "Modal Awal", "Belanja Stok", "Operasional"]
+            idx_jenis_lama = list_jenis.index(tx_lama["Jenis"]) if tx_lama["Jenis"] in list_jenis else 0
+            idx_toko_lama = 1 if tx_lama["Toko"] == "Foodies" else 0
+
+            with st.form(f"form_edit_buku_{tx_lama['ID']}"):
+                ce1, ce2, ce3 = st.columns(3)
+                with ce1:
+                    e_tgl = st.date_input("Tanggal", value=tgl_default_edit)
+                with ce2:
+                    e_toko = st.selectbox("Toko", ["Homedress", "Foodies"], index=idx_toko_lama)
+                with ce3:
+                    e_jenis = st.selectbox("Jenis", list_jenis, index=idx_jenis_lama)
+
+                e_ket = st.text_input("Keterangan / Nama Barang", value=tx_lama["Keterangan"])
+
+                ce4, ce5, ce6 = st.columns([0.8, 1.3, 1.3])
+                with ce4:
+                    e_qty = st.number_input("Jml", min_value=1, value=max(1, int(tx_lama["Qty"])))
+                with ce5:
+                    e_modal = st.number_input("Modal / Pengeluaran (Rp)", min_value=0, step=1000, value=int(tx_lama["Modal Barang"]))
+                with ce6:
+                    e_jual = st.number_input("Harga Jual (Rp)", min_value=0, step=1000, value=int(tx_lama["Harga Jual"]))
+
+                e_catatan = st.text_input("Catatan", value=tx_lama["Catatan"])
+
+                cb_save, cb_del = st.columns(2)
+                with cb_save:
+                    btn_update_tx = st.form_submit_button("💾 Simpan Perubahan", type="primary", use_container_width=True)
+                with cb_del:
+                    btn_hapus_tx = st.form_submit_button("🗑️ Hapus Transaksi", use_container_width=True)
+
+                if btn_update_tx:
+                    if not e_ket.strip():
+                        st.error("Keterangan tidak boleh kosong.")
+                    else:
+                        with st.spinner("Memperbarui catatan..."):
+                            update_entri_pembukuan(
+                                row_num=tx_lama["row_num"],
+                                id_tx=tx_lama["ID"],
+                                tgl_str=e_tgl.strftime("%Y-%m-%d"),
+                                toko=e_toko,
+                                jenis=e_jenis,
+                                keterangan=e_ket.strip(),
+                                qty=int(e_qty),
+                                modal_brg=int(e_modal),
+                                harga_jual=int(e_jual),
+                                catatan=e_catatan.strip()
+                            )
+                            st.success(f"✅ Transaksi {tx_lama['ID']} berhasil diperbarui!")
+                            st.rerun()
+
+                if btn_hapus_tx:
+                    with st.spinner("Menghapus catatan..."):
+                        hapus_entri_pembukuan(tx_lama["row_num"])
+                        st.warning(f"Transaksi {tx_lama['ID']} telah dihapus.")
+                        st.rerun()
